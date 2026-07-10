@@ -1,0 +1,76 @@
+[package]
+name = "aegis-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "aegis"
+path = "src/main.rs"
+
+[dependencies]
+aegis-core = { path = "../../crates/aegis-core", version = "1.0.2", package = "aegis-agent-core" }
+aegis-memory = { path = "../../crates/aegis-memory", version = "1.0.2", package = "aegis-agent-memory" }
+aegis-provider = { path = "../../crates/aegis-provider", version = "1.0.2" }
+aegis-record = { path = "../../crates/aegis-record", version = "1.0.2" }
+aegis-security = { path = "../../crates/aegis-security", version = "1.0.2" }
+aegis-tools = { path = "../../crates/aegis-tools", version = "1.0.2" }
+aegis-mcp = { path = "../../crates/aegis-mcp", version = "1.0.2" }
+aegis-perception = { path = "../../crates/aegis-perception", version = "1.0.2" }
+aegis-import = { path = "../../crates/aegis-import", version = "1.0.2", optional = true }
+aegis-selfdev = { path = "../../crates/aegis-selfdev", version = "1.0.2", optional = true }
+aegis-learning = { path = "../../crates/aegis-learning", version = "1.0.2" }
+aegis-browser = { path = "../../crates/aegis-browser", version = "1.0.2" }
+aegis-feedback = { path = "../../crates/aegis-feedback", version = "1.0.2" }
+aegis-a2a = { path = "../../crates/aegis-a2a", version = "1.0.2" }
+axum = { workspace = true }
+tower-http = { workspace = true }
+thiserror = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+clap = { workspace = true }
+rustyline = { workspace = true }
+reedline = { workspace = true }
+anyhow = { workspace = true }
+base64 = { workspace = true }
+aegis-types = { path = "../../crates/aegis-types", version = "1.0.2" }
+serde_json = { workspace = true }
+serde = { workspace = true }
+serde_yaml = "0.9"
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+colored = "2"
+terminal_size = "0.3"
+unicode-width = "0.1"
+futures = "0.3"
+async-trait = "0.1"
+tokio-tungstenite = { workspace = true }
+simploxide-client = { version = "=0.13.1", default-features = false, features = ["websocket"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tower = { workspace = true }
+
+[features]
+# Default = full build. A lean `lite` build drops the bins-only optional
+# subsystems (self-development + cross-harness import) to shrink the binary.
+#   cargo build --release --no-default-features --features lite
+default = ["selfdev", "import"]
+lite = []
+selfdev = ["dep:aegis-selfdev"]
+import = ["dep:aegis-import"]
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/aegis-{ target }.tar.gz"
+pkg-fmt = "tgz"
+bin-dir = "aegis{ binary-ext }"

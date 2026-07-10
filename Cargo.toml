@@ -1,0 +1,94 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/aegis-types",
+    "crates/aegis-core",
+    "crates/aegis-provider",
+    "crates/aegis-record",
+    "crates/aegis-security",
+    "crates/aegis-sandbox",
+    "crates/aegis-tools",
+    "crates/aegis-feedback",
+    "crates/aegis-goals",
+    "crates/aegis-perception",
+    "crates/aegis-mcp",
+    "crates/aegis-a2a",
+    "crates/aegis-memory",
+    "crates/aegis-browser",
+    "crates/aegis-import",
+    "crates/aegis-learning",
+    "crates/aegis-selfdev",
+    "crates/iblt",
+    "crates/iblt-store",
+    "bins/aegis",
+]
+
+[workspace.package]
+version = "1.0.2"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/Druuugbug/Aegis"
+homepage = "https://github.com/Druuugbug/Aegis"
+description = "A cognitive agent runtime that learns from experience. Written in Rust."
+authors = ["The Aegis authors"]
+keywords = ["agent", "ai", "llm", "cli", "automation"]
+categories = ["command-line-utilities"]
+
+[workspace.dependencies]
+# async
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+futures = "0.3"
+async-trait = "0.1"
+
+# http / websocket
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "http2", "charset"] }
+reqwest-eventsource = "0.6"
+tokio-tungstenite = { version = "0.23", features = ["rustls-tls-webpki-roots"] }
+
+# serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# storage
+rusqlite = { version = "0.32", features = ["bundled", "vtab"] }
+
+# cli
+clap = { version = "4", features = ["derive"] }
+rustyline = "15"
+reedline = "0.38"
+
+# error
+anyhow = "1"
+thiserror = "2"
+
+# logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+
+# misc
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1"
+dirs-next = "2"
+base64 = "0.22"
+bytes = "1"
+tokio-stream = "0.1"
+strsim = "0.11"
+rand = "0.8"
+dotenvy = "0.15"
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "request-id", "util"] }
+scraper = "0.20"
+criterion = { version = "0.5", features = ["html_reports"] }
+http = "1"
+tempfile = "3"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

@@ -1,0 +1,51 @@
+# Build artifacts
+/target
+**/target
+*.pdb
+*.rlib
+
+# Test / coverage artifacts
+coverage/
+*.lcov
+tarpaulin-report*.xml
+
+# Runtime state (regenerated on every run)
+/logs
+*.log
+.omc/
+.builder-history/
+.pending-history/
+.vision-history/
+
+# Databases / write-ahead logs
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.sled
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+config.toml
+SOUL.md
+
+# Editor / OS
+*.swp
+*.swo
+*~
+*.bak
+*.orig
+*.rej
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Node (for MCP servers)
+node_modules/
+
+# Temporary
+*.pid

@@ -1,0 +1,17 @@
+[package]
+name = "aegis-perception"
+version.workspace = true
+edition.workspace = true
+description = "Event bus and metrics for Aegis"
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+once_cell = "1"
+async-trait = { workspace = true }

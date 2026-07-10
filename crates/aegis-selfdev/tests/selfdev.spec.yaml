@@ -1,0 +1,259 @@
+# selfdev.spec.yaml — Aegis Self-Development Offline Test Suite
+#
+# Verifies the self-development protocol end-to-end without requiring
+# actual LLM calls, network access, or a live agent.
+#
+# Run:
+#   cargo test -p aegis-selfdev
+#   aegis selfdev --dry-run spec selfdev.spec.yaml
+
+version: "1.0"
+name: "selfdev-offline"
+description: "Offline test scenarios for the self-development protocol"
+
+# ─── Fixtures ────────────────────────────────────────────────────────
+fixtures:
+  repo_root: "/tmp/aegis-selfdev-test"
+  stable_binary: "/tmp/aegis-selfdev-test/target/release/aegis"
+  canary_binary: "/tmp/aegis-selfdev-test/target/release/aegis-canary"
+
+# ─── SourceState ─────────────────────────────────────────────────────
+specs:
+  - group: source_state
+    description: "Git source state capture"
+    cases:
+      - name: capture_returns_hash
+        description: "SourceState::capture reads git HEAD hash"
+        assertion: "short_hash is 8 chars, full_hash is 40 chars"
+
+      - name: dirty_flag
+        description: "dirty=true when working tree has changes"
+        setup: "make a file change in repo"
+        assertion: "state.dirty == true"
+
+      - name: clean_flag
+        description: "dirty=false on clean working tree"
+        setup: "git stash or clean repo"
+        assertion: "state.dirty == false"
+
+      - name: fingerprint_format
+        description: "fingerprint is '{short_hash}+{changed_paths}'"
+        assertion: "fingerprint matches regex [0-9a-f]{8}\\+\\d+"
+
+  - group: build_target
+    description: "Build target naming and parsing"
+    cases:
+      - name: binary_names
+        cases:
+          - input: { target: Aegis }
+            expect: { binary_name: "aegis" }
+          - input: { target: All }
+            expect: { binary_name: "aegis" }
+
+      - name: from_str_opt
+        cases:
+          # Legacy worker/server values map to the unified aegis binary.
+          - input: "worker"
+            expect: Aegis
+          - input: "server"
+            expect: Aegis
+          - input: "all"
+            expect: All
+          - input: null
+            expect: Aegis
+          - input: "unknown"
+            expect: Aegis
+
+  - group: canary_lifecycle
+    description: "Canary deploy, watch, promote, rollback lifecycle"
+    cases:
+      - name: deploy_canary
+        description: "Deploy sets canary slot and start time"
+        steps:
+          - "Create SelfDevEngine with test repo root"
+          - "Call deploy_canary(binary_path)"
+        assertion:
+          - "canary_slot.is_some()"
+          - "canary_slot.status == Active"
+          - "canary_start_time.is_some()"
+
+      - name: promote_without_slot_errors
+        description: "Promote fails if no canary is deployed"
+        steps:
+          - "Create fresh SelfDevEngine"
+          - "Call promote_canary()"
+        assertion: "result is Err"
+
+      - name: promote_moves_stable_binary
+        description: "Promote copies canary path to stable_binary"
+        steps:
+          - "Deploy canary to /tmp/bin"
+          - "Call promote_canary()"
+        assertion:
+          - "result is Ok"
+          - "engine.stable_binary == /tmp/bin"
+          - "canary_slot.status == Promoted"
+
+      - name: rollback_sets_status
+        description: "Rollback marks canary as RolledBack"
+        steps:
+          - "Deploy canary"
+          - "Call rollback_to_stable('test reason')"
+        assertion:
+          - "result is Ok"
+          - "canary_slot.status == RolledBack"
+
+      - name: rollback_without_slot_noop
+        description: "Rollback succeeds even without canary slot"
+        steps:
+          - "Create fresh SelfDevEngine"
+          - "Call rollback_to_stable('no canary')"
+        assertion: "result is Ok"
+
+  - group: crash_detection
+    description: "Crash recording and rollback trigger logic"
+    cases:
+      - name: no_crash_no_rollback
+        description: "should_rollback is false with empty crash history"
+        assertion: "should_rollback() == false"
+
+      - name: crash_without_canary_no_rollback
+        description: "Crashes alone don't trigger rollback without active canary"
+        steps:
+          - "Record a crash"
+          - "No canary slot deployed"
+        assertion: "should_rollback() == false"
+
+      - name: crash_with_active_canary_triggers_rollback
+        description: "Crash + active canary => should_rollback"
+        steps:
+          - "Deploy canary (status=Active)"
+          - "Record crash"
+        assertion: "should_rollback() == true"
+
+      - name: crash_after_promote_triggers_rollback
+        description: "Crash after promote but canary still active => rollback"
+        steps:
+          - "Deploy canary"
+          - "Promote canary (status=Promoted)"
+          - "Record crash"
+        assertion: "should_rollback() == true"
+
+      - name: multiple_crashes
+        description: "Multiple crashes accumulate in history"
+        steps:
+          - "Record 3 different crashes"
+        assertion:
+          - "crash_history.len() == 3"
+          - "Each crash has distinct version"
+
+  - group: watch_canary
+    description: "Canary observation with configurable duration"
+    cases:
+      - name: watch_no_crash_promotes
+        description: "Observing canary with zero duration and no crashes promotes"
+        steps:
+          - "Deploy canary"
+          - "Set observe_duration_secs = 0"
+          - "Call watch_canary()"
+        assertion:
+          - "result == Ok(true)"
+          - "canary_slot.status == Promoted"
+
+      - name: watch_with_crash_rolls_back
+        description: "Observing canary with recorded crash rolls back"
+        steps:
+          - "Deploy canary"
+          - "Record crash"
+          - "Set observe_duration_secs = 0"
+          - "Call watch_canary()"
+        assertion:
+          - "result == Ok(false)"
+          - "canary_slot.status == RolledBack"
+
+  - group: build_info
+    description: "Build result information"
+    cases:
+      - name: successful_build_info
+        description: "Successful build has success=true, empty errors"
+        fields:
+          - "success: true"
+          - "errors: []"
+          - "build_duration_ms >= 0"
+          - "source.short_hash is present"
+          - "binary_path exists"
+
+      - name: failed_build_info
+        description: "Failed build has success=false with error strings"
+        fields:
+          - "success: false"
+          - "errors.len() > 0"
+          - "errors[0] contains compiler output"
+
+  - group: integration
+    description: "End-to-end selfdev workflow"
+    cases:
+      - name: full_lifecycle
+        description: "Complete build -> deploy -> watch -> promote cycle"
+        steps:
+          - "Create SelfDevEngine"
+          - "build_and_test(BuildTarget::Aegis)"
+          - "Verify build success"
+          - "deploy_canary(binary_path)"
+          - "Set observe_duration_secs = 0"
+          - "watch_canary()"
+        assertion:
+          - "Build succeeded"
+          - "Canary promoted"
+          - "stable_binary updated"
+
+      - name: crash_rollback_cycle
+        description: "Build -> deploy -> crash -> rollback -> deploy again"
+        steps:
+          - "Create SelfDevEngine"
+          - "Deploy canary"
+          - "Record crash"
+          - "Verify should_rollback"
+          - "rollback_to_stable"
+          - "Verify canary RolledBack"
+          - "Clear crash history"
+          - "Deploy new canary"
+        assertion:
+          - "New canary is Active"
+          - "Previous canary was RolledBack"
+
+# ─── Contract ────────────────────────────────────────────────────────
+contracts:
+  - name: canary_state_machine
+    description: "Canary status transitions are valid"
+    transitions:
+      - from: null
+        to: Building
+        trigger: build_and_test
+      - from: Building
+        to: Active
+        trigger: deploy_canary
+      - from: Active
+        to: Promoted
+        trigger: promote_canary
+      - from: Active
+        to: RolledBack
+        trigger: rollback_to_stable
+      - from: Promoted
+        to: RolledBack
+        trigger: rollback_to_stable
+    invalid_transitions:
+      - from: RolledBack
+        to: Promoted
+      - from: null
+        to: Promoted
+
+  - name: rollback_preconditions
+    description: "Rollback requires crash history AND active/promoted canary"
+    rules:
+      - "no crashes => should_rollback == false"
+      - "crashes + no canary => should_rollback == false"
+      - "crashes + canary(Building) => should_rollback == false"
+      - "crashes + canary(Active) => should_rollback == true"
+      - "crashes + canary(Promoted) => should_rollback == true"
+      - "crashes + canary(RolledBack) => should_rollback == false"

@@ -1,0 +1,34 @@
+[package]
+name = "aegis-tools"
+version.workspace = true
+edition.workspace = true
+description = "Tool system for the Aegis agent runtime"
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aegis-security = { path = "../aegis-security", version = "1.0.2" }
+aegis-sandbox = { path = "../aegis-sandbox", version = "1.0.2" }
+aegis-a2a = { path = "../aegis-a2a", version = "1.0.2" }
+aegis-memory = { path = "../aegis-memory", version = "1.0.2", package = "aegis-agent-memory" }
+aegis-record = { path = "../aegis-record", version = "1.0.2" }
+aegis-feedback = { path = "../aegis-feedback", version = "1.0.2" }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+regex = { workspace = true }
+strsim = { workspace = true }
+dirs-next = { workspace = true }
+chrono = { workspace = true }
+rusqlite = { workspace = true }
+reqwest = { workspace = true }
+scraper = { workspace = true }
+toml = { workspace = true }
+futures = { workspace = true }
+base64 = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

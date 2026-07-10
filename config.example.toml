@@ -1,0 +1,425 @@
+# Aegis Configuration
+# Copy this file to ~/.aegis/config.toml and customise to your environment.
+#
+# All settings can also be overridden by environment variables:
+#   AEGIS_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY
+#   AEGIS_MODEL, AEGIS_PROVIDER, AEGIS_BASE_URL
+#   AEGIS_YOLO (set to "true" to skip all safety approvals)
+
+# Runtime profile: "" (default) or "lite" — low-memory mode for small servers
+# (1c1g): smaller context window, fewer recalled memories, model-summary off,
+# sidecar off, passive learning off, smaller memory cap.
+profile = ""
+
+# ---------------------------------------------------------------------------
+# Log file size caps (rotation). Each log keeps one ".1" backup, so on-disk use
+# is about 2× the cap. 0 = unbounded (disable rotation for that log).
+# ---------------------------------------------------------------------------
+[logs]
+agent_max_mb = 10    # daemon runtime log (~/.aegis/logs/agent.log)
+audit_max_mb = 5     # action audit trail (audit.log)
+alerts_max_mb = 5    # monitor alerts (alerts.log)
+
+# ---------------------------------------------------------------------------
+# LLM Provider
+# ---------------------------------------------------------------------------
+[model]
+provider = "openai"           # openai | anthropic | ollama
+default = "gpt-4o-mini"       # default model name
+# api_key = "sk-..."          # or use OPENAI_API_KEY env var
+# base_url = "https://api.openai.com/v1"  # custom endpoint / proxy
+max_tokens = 4096             # max tokens per response
+timeout_secs = 120            # HTTP request timeout
+max_retries = 3               # retry on transient failures
+# context_tokens = 1000000    # override total context window (tokens) for
+                              # budgeting/compaction + the prompt gauge. If unset,
+                              # a per-model heuristic is used (unknown → 128k).
+daily_token_limit = 0         # cap on total consumed tokens per UTC day (input+output);
+                              # the agent refuses new turns past this. 0 = no cap.
+                              # Uses accurate provider-reported counts; see `aegis usage --today`.
+frugal = false                # trade some quality for fewer/smaller LLM calls (smaller context,
+                              # fewer recalled memories, heuristic compaction, sidecar off, terse
+                              # recall). Token-saver only — never loses stored memory. Independent
+                              # of the RAM-driven `lite` profile (a small box != a small budget).
+
+# Credential pool — rotate multiple API keys
+# [[model.credentials]]
+# api_key = "sk-key1"
+# [[model.credentials]]
+# api_key = "sk-key2"
+# strategy = "RoundRobin"     # FillFirst | RoundRobin | Random
+
+# ---------------------------------------------------------------------------
+# Endurance — wait out provider rate-limit / quota instead of failing
+# ---------------------------------------------------------------------------
+# When a request hits a rate limit or usage-quota exhaustion (HTTP 429, or a
+# provider-specific signal like MiniMax's base_resp 2056), keep re-issuing the
+# request on a fixed interval until it succeeds, then carry on. Designed for
+# fixed token plans (e.g. MiniMax) where a request has no marginal cost and a
+# bare 429 carries no reset time — so probing every couple of minutes beats
+# guessing the reset window. Hard errors (insufficient balance, auth) are never
+# retried. Cancellation still works: stopping the turn drops the wait.
+[endurance]
+enabled = false               # opt-in; set true for MiniMax token-plan users
+probe_interval_secs = 120     # how often to retry while rate-limited (2 min)
+max_total_wait_secs = 0       # cap on total wait per call; 0 = wait indefinitely
+
+# ---------------------------------------------------------------------------
+# Agent Behaviour
+# ---------------------------------------------------------------------------
+[agent]
+max_iterations = 50           # max tool-call loops per turn (long tasks)
+no_progress_limit = 3         # stop if the SAME tool call(s) repeat this many times in a
+                              # row (thrash/no-progress breaker). 0 or <2 = disabled.
+auto_continue = false         # when a turn hits max_iterations, auto-refresh the budget
+                              # and keep working (for long unattended tasks) instead of
+                              # stopping to summarize. Bounded by max_auto_continues.
+max_auto_continues = 2        # max budget refreshes when auto_continue is on (cost guard)
+# identity = "..."            # override the built-in Aegis persona (leave unset to keep it)
+context_window = 50           # messages to keep in context before compaction
+# workspace = "~/aegis-workspace"  # default working dir for tool writes / new
+                              # projects. Expands ~. If unset, uses the directory
+                              # you launched aegis from (keeps outputs out of the
+                              # source tree).
+
+# ---------------------------------------------------------------------------
+# Memory & context compaction
+# ---------------------------------------------------------------------------
+[memory]
+backend = "local"             # local | composite (composite needs an external backend wired in)
+compose_mode = "failover"     # when composite: failover | merge | local_first
+recall_limit = 5              # max long-term memories injected per turn
+min_confidence = 0.3          # drop retrieved memories below this confidence
+sidecar_min_candidates = 3    # only run the LLM relevance check when ≥ this many candidates
+max_entries = 5000            # cap stored memories (storage only, ~a few MB; not per-turn tokens) — pruned (expired, then lowest confidence) on save
+extraction_timeout_secs = 10  # timeout for session-end memory distillation (0 = no limit, capped 1h)
+# existence_encoding = false  # inject only a short trigger + id for long recalled memories
+                              # (full body via memory_search on demand) — saves prompt tokens.
+                              # Auto-enabled by the `lite` profile.
+
+[memory.compaction]           # context compression (TokenGovernor)
+summarizer = "model"          # "model" = summarize with the active model | "heuristic"
+model_from_tier = "hard"      # use the model from this tier up: soft | hard | emergency
+summarize_timeout_ms = 800
+soft = 0.80
+hard = 0.90
+emergency = 0.95
+
+[memory.write]                # session-end memory distillation (extract → reconcile)
+enabled = true
+min_salience = 0.5
+
+# ---------------------------------------------------------------------------
+# Output style — answer verbosity dial (token-saving). Toggle live with /style.
+# ---------------------------------------------------------------------------
+[output]
+style = "normal"              # normal | concise | minimal
+
+# ---------------------------------------------------------------------------
+# Server components (server-admin scenario). When enabled, a compact default
+# component catalog for the chosen tier is injected into the prompt; live
+# web_search results stored in memory override it. Say "I like the most
+# advanced/minimal components" and the agent sets the tier for you.
+# ---------------------------------------------------------------------------
+[components]
+enabled = false               # turn on for the server-management scenario
+tier = "standard"             # minimal | standard | advanced
+
+# ---------------------------------------------------------------------------
+# Session Storage (SQLite)
+# ---------------------------------------------------------------------------
+[record]
+session_retention_days = 90   # auto-prune sessions older than this
+# db_path = "~/.aegis/sessions.db"
+
+# ---------------------------------------------------------------------------
+# Security & Safety
+# ---------------------------------------------------------------------------
+[security]
+command_approval = true       # ask user before running dangerous commands
+yolo = false                  # skip routine approvals. The daemon (`aegis gateway`)
+                              # turns this ON by default. Even under yolo, catastrophic
+                              # terminal commands (rm -rf /, mkfs, dd, fork bomb…) still
+                              # require an explicit confirm — unless `reckless` below.
+reckless = false              # DANGER: pass ALL commands incl. catastrophic ones with NO
+                              # confirmation (implies yolo). Only in trusted, isolated envs.
+                              # Also: AEGIS_RECKLESS=1, or `aegis gateway --reckless`.
+trash = true                  # route `rm` through a recoverable trash (a PATH shim) so
+                              # deletions are undoable. Each item is tagged with the session
+                              # that deleted it: `aegis trash list|restore <id|all|--session ID>|empty`.
+trash_max_sessions = 20       # keep trash from at most this many recent sessions
+trash_max_mb = 512            # AND keep total trash under this many MB (newest always kept).
+                              # Both gates apply together; whichever hits first prunes oldest.
+snapshot = true               # before risky commands (mv/dd/truncate/git reset --hard/…),
+                              # archive the working dir as a rollback point: `aegis snapshot
+                              # list|restore <id>|empty`. (rm is already covered by trash.)
+snapshot_cwd_max_mb = 200     # skip the snapshot if the working dir is larger than this.
+snapshot_store_mb = 1024      # total snapshot store cap; oldest auto-pruned past this.
+# allowed_commands = []       # permanently allowlisted command patterns
+redact_tool_output = true     # DATA SECURITY: redact secrets (keys/tokens/private keys/
+                              # credentials/emails) from tool output before it reaches the
+                              # LLM provider. Strongly recommended on shared/cloud models.
+
+# Reversible secret vault (the "invisible guard"): real secret values are
+# replaced with stable placeholder tokens («secret:NAME») before ANY text
+# reaches the model, and restored to the real value at tool-execution time — so
+# the model can *use* a key/password without ever seeing it. Add secrets with
+# `/secret add <name> <value>`; saved remote-server passwords are folded in too.
+secret_vault = true            # master switch (default on)
+secret_auto_scan = true        # auto-detect & vault unregistered keys (sk-…, AKIA…, ghp_…, Bearer …)
+secret_display = "real"        # what the USER sees: "real" = real values (default; convenient)
+                               # | "token" = placeholders too (safest for screen-share/logs;
+                               # use `/secret reveal <name>` to see the real value). The model
+                               # ALWAYS sees only the token regardless of this setting.
+
+# Permission policy (fine-grained, config-driven). When set, it gates tool calls
+# *before* the built-in danger checks; anything not matched falls through to the
+# normal behavior. Priority among matching rules: deny > ask > allow.
+# permission_mode = "readonly"   # block all write/exec tools + non-read terminal commands
+# [[security.rules]]
+# dsl = "terminal(git *)"        # auto-allow safe git commands (no prompt)
+# mode = "workspacewrite"
+# action = "allow"
+# [[security.rules]]
+# dsl = "terminal(rm *)"         # always ask before rm
+# mode = "workspacewrite"
+# action = "ask"
+# [[security.rules]]
+# dsl = "read_file(*/.ssh/*)"    # hard-deny reading ssh keys
+# mode = "readonly"
+# action = "deny"
+
+# DLP (Data Loss Prevention) — redact secrets from tool outputs
+[security.dlp]
+enabled = true
+# custom_patterns = ["sk-[a-zA-Z0-9]{20,}"]
+
+# ---------------------------------------------------------------------------
+# Sandbox (aegis-sandbox) — opt-in defense-in-depth
+#
+# When enabled, tools that spawn subprocesses (currently: terminal,
+# web_extract) apply landlock + seccomp + user-namespace enforcement to
+# the child process, keyed by the *caller identity*:
+#
+#   - LocalOwner (your CLI)         → unrestricted (baseline behavior)
+#   - A2A peer with Trusted trust   → compute_workdir sandbox
+#   - A2A peer with Standard trust  → compute_workdir + deny sensitive HOME
+#   - A2A peer with Restricted      → parser_offline; shell tools denied
+#   - Anything with ReadOnly trust  → all spawning tools denied
+#
+# Peer trust is set with:  aegis peer trust <agent-id> --level <tier>
+# (stored in <config_dir>/peers_trust.toml — separate from this file so the
+# CLI never rewrites your comments here).
+#
+# Default is **disabled** — existing users see zero behavior change until
+# they opt in.
+# See devdocs/design-sandbox.md for the full model.
+# ---------------------------------------------------------------------------
+[sandbox]
+enabled = false               # master switch; default off
+allow_degrade = false         # true = warn+fallback on unsupported kernels;
+                              # false = fail loud so operators notice
+backend = "auto"              # "auto" | "linux" | "noop"
+
+# ---------------------------------------------------------------------------
+# Tools
+# ---------------------------------------------------------------------------
+[tools]
+timeout_secs = 300            # per-tool execution timeout
+# disabled = ["terminal"]    # disable specific tools by name
+
+# ---------------------------------------------------------------------------
+# Feedback & Strategy Learning
+# ---------------------------------------------------------------------------
+[feedback]
+enabled = true
+min_tool_calls_for_extraction = 5  # minimum tool calls before strategy extraction
+
+# ---------------------------------------------------------------------------
+# Passive local learning (aegis-learning)
+# When enabled, active user facts learned from your local git/shell/project/env
+# are injected into the system prompt. Manage facts with `aegis learn`.
+# ---------------------------------------------------------------------------
+[learning]
+enabled = true
+
+# ---------------------------------------------------------------------------
+# MCP Servers — connect external tools
+# ---------------------------------------------------------------------------
+# [mcp_servers.filesystem]
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
+#
+# [mcp_servers.github]
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-github"]
+# env = { GITHUB_TOKEN = "ghp_..." }
+#
+# [mcp_servers.memory]
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-memory"]
+
+# ---------------------------------------------------------------------------
+# Channels (optional)
+# ---------------------------------------------------------------------------
+# [channels.telegram]
+# bot_token = "123456:ABC-DEF..."
+# polling_interval_secs = 3
+
+# [channels.discord]
+# bot_token = "..."
+# guild_id = "123456789"
+
+# [channels.slack]
+# bot_token = "xoxb-..."
+# app_token = "xapp-..."
+
+# [channels.feishu]
+# app_id = "cli_..."
+# app_secret = "..."
+
+# ---------------------------------------------------------------------------
+# Overnight Autonomous Runs (optional)
+# ---------------------------------------------------------------------------
+# [overnight]
+# enabled = true
+# start_time = "02:00"       # UTC
+# max_hours = 4
+# resource_limit_mb = 2048
+
+# ---------------------------------------------------------------------------
+# Optional external tools (off by default; require programs you install yourself)
+# ---------------------------------------------------------------------------
+# `browser` — drives a real browser via an external `browser-harness` program.
+# To act inside your already-open, logged-in browser, make the harness ATTACH to
+# a running browser over CDP (start it with --remote-debugging-port=9222 against
+# your real profile) instead of launching a fresh instance. See README.
+# [browser]
+# enabled = true
+# binary = "browser-harness"   # path to your harness executable
+# timeout_secs = 30
+
+# `maigret` — OSINT username lookup via the external Maigret tool (python -m maigret).
+# [maigret]
+# enabled = true
+# path = "maigret"             # path to the maigret package/dir
+# timeout_secs = 120
+# top_sites = 500              # 0 = all sites
+
+
+# ── Multi-machine A2A peers ─────────────────────────
+# Other aegis instances this agent can delegate to (delegate_work / ask_question).
+# Run an authenticated peer with:
+#   aegis a2a --port 41241 --token "$AEGIS_A2A_TOKEN"   (bind 127.0.0.1 by default)
+# Without --token / AEGIS_A2A_TOKEN the endpoint is UNAUTHENTICATED — only safe on
+# 127.0.0.1 behind an SSH tunnel. Peers can also be added live by natural language
+# (the `peer` tool writes ~/.aegis/peers.json); set their token there or here.
+# [[peers]]
+# name = "srv1"
+# role = "deploy box"
+# expertise = "deployment, load tests, region-locked APIs"
+# url = "http://127.0.0.1:41241"   # or an SSH-tunneled / authenticated endpoint
+# token = "..."                     # bearer token the peer requires (matches its --token)
+
+
+# ── Unified gateway (resident daemon) ───────────────
+# The gateway is a resident daemon: ONE agent runtime + entry frontends (A2A,
+# later channels) + a local control socket (~/.aegis/gateway.sock, 0600).
+#   aegis            → CLI client: attaches to the daemon (auto-starts it if down)
+#   aegis gateway    → start the daemon headless (run under systemd for real persistence)
+#   aegis a2a        → daemon with the A2A frontend forced on
+#   aegis chat       → standalone full-UX REPL (does not use the daemon)
+# [gateway]
+# enabled = true
+# max_live_sessions = 16     # LRU cap on in-memory sessions (1c1g: 8~16)
+# max_concurrency = 3        # concurrent in-flight requests (1 = serial)
+# default_isolation = "per_user"   # per_user | shared | per_thread
+# default_permission = "safe"      # full | safe | readonly (tool tier; chat always allowed)
+# autostart = true                 # bare `aegis`, if the gateway is down, auto-registers +
+#                                  # starts a user-level systemd service (boot-persistent) when
+#                                  # systemd is available, else background-spawns it. So just
+#                                  # `curl … && aegis` is enough — no separate `gateway install`.
+#
+# [gateway.a2a]
+# enabled = true
+# host = "127.0.0.1"
+# port = 41241
+# token = "..."             # bearer token required on incoming requests
+#
+# [gateway.feishu]          # Feishu/Lark frontend (event-subscription webhook)
+# enabled = true
+# app_id = "cli_..."
+# app_secret = "..."        # local only, never sent to the model
+# host = "0.0.0.0"          # Feishu must be able to reach this (public IP / reverse proxy)
+# port = 9001               # event callback URL: http://<host>:9001/feishu/events
+#                           # group chats default to readonly (chat + read, no write/exec)
+# base_url = "https://open.feishu.cn"        # China (default); Lark Intl: https://open.larksuite.com
+# verification_token = "..."                 # event-subscription Verification Token (rejects forged events)
+# encrypt_key = "..."                        # event Encrypt Key — if set in the Feishu console, set it here
+#                                            # too so encrypted events (AES-256-CBC) are decrypted.
+
+# [gateway.telegram]        # Telegram frontend (long-poll getUpdates; no public IP needed)
+# enabled = true
+# bot_token = "123456:ABC-DEF..."   # from @BotFather; local only
+
+# [gateway.discord]         # Discord frontend
+# enabled = true
+# mode = "gateway"          # gateway = realtime WebSocket (recommended) | poll = REST polling
+# bot_token = "..."         # needs the MESSAGE CONTENT INTENT enabled in the dev portal
+# channel_id = "123456789012345678" # optional: only this channel (poll mode requires it)
+
+# [gateway.slack]           # Slack frontend
+# enabled = true
+# mode = "socket"           # socket = Socket Mode WebSocket (recommended) | poll = REST polling
+# app_token = "xapp-..."    # App-Level Token (connections:write) — required for socket mode
+# bot_token = "xoxb-..."    # for posting replies
+# channel_id = "C0123456789" # optional (socket): only this channel; required for poll mode
+#
+# Note: these poll messages from EVERYONE in the channel — only enable in trusted
+# channels. All non-CLI entrances default to the [gateway].default_permission tier
+# (safe: chat + read, write/exec need approval/rules).
+
+# ── Update check ────────────────────────────────────
+# Once-a-day notice (on `aegis` startup) if a newer GitHub release exists.
+# [update]
+# check = true
+# repo = "owner/name"      # GitHub owner/repo; empty = no check
+
+# ---------------------------------------------------------------------------
+# Proactive monitors (watcher) — the resident daemon runs these on a schedule
+# and pushes an alert when the condition fires. Checks are plain shell commands
+# (no LLM cost). Alerts go to Feishu (uses [gateway.feishu] credentials) when
+# notify_to is set, and are always logged to ~/.aegis/logs/alerts.log.
+# Add a monitor by copying a block; restart the daemon to apply (aegis gateway stop).
+#
+# Host self-guardian: the daemon ALSO runs built-in memory/disk/load monitors
+# out of the box (self:memory / self:disk / self:load) so it watches the box it
+# lives on. Default: enabled, log-only. Configure or disable here:
+# [self_watch]
+# enabled = true
+# notify_to = ""      # Feishu receive_id to push host alerts to (empty = log only)
+# disk_pct = 90.0     # alert when root-fs usage exceeds this percent
+# mem_pct = 10.0      # alert when available memory drops below this percent
+# ---------------------------------------------------------------------------
+# [[watch]]
+# name = "disk-root"
+# schedule = "every 5m"        # every <N>[s|m|h]
+# check = "df -P / | tail -1 | awk '{print $5}' | tr -d '%'"
+# output_gt = 90               # trigger: first number in stdout > 90
+# notify_to = "oc_xxxxxxxx"    # Feishu chat_id (oc_) or open_id; omit = log only
+# message = "Disk / at {output}%"   # template: {name} {output}
+# cooldown_secs = 3600
+#
+# [[watch]]
+# name = "nginx-up"
+# schedule = "every 1m"
+# check = "systemctl is-active --quiet nginx"   # exit != 0 when down
+# notify_to = "oc_xxxxxxxx"                       # default trigger = non-zero exit
+# message = "nginx is DOWN on this host"
+#
+# [[watch]]
+# name = "errors-in-log"
+# schedule = "every 2m"
+# check = "tail -n 50 /var/log/app/app.log"
+# contains = "ERROR"            # trigger: stdout contains this substring
+# notify_to = "oc_xxxxxxxx"

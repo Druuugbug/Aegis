@@ -1,0 +1,433 @@
+openapi: 3.1.0
+info:
+  title: Aegis Server API
+  version: 2.0.0
+  description: |
+    Aegis cognitive agent runtime HTTP API.
+
+    Provides health checks, chat (sync + SSE streaming), session management,
+    and message search. Optional Bearer token authentication.
+
+servers:
+  - url: http://localhost:3777
+    description: Local development
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: >
+        Optional. Set `server.api_key` in aegis.toml to enable.
+        When enabled, all endpoints except `/health` and `/version` require a valid token.
+
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+        version:
+          type: string
+          example: 2.0.0
+      required: [status, version]
+
+    VersionResponse:
+      type: object
+      properties:
+        version:
+          type: string
+          example: 2.0.0
+        model:
+          type: string
+          example: gpt-4o
+      required: [version, model]
+
+    ChatRequest:
+      type: object
+      properties:
+        message:
+          type: string
+          minLength: 1
+          description: The message to send to the agent.
+          example: Hello, what time is it?
+      required: [message]
+
+    ChatResponse:
+      type: object
+      properties:
+        response:
+          type: string
+          description: The agent's reply.
+          example: Hello! I can help with that.
+      required: [response]
+
+    SessionListResponse:
+      type: object
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionSummary'
+      required: [sessions]
+
+    SessionSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          example: abc123
+        title:
+          type: string
+          nullable: true
+          example: Morning Planning
+        model:
+          type: string
+          nullable: true
+          example: gpt-4o
+        started_at:
+          type: string
+          format: date-time
+          example: "2025-06-01T09:00:00Z"
+        message_count:
+          type: integer
+          format: int64
+          example: 12
+      required: [id, started_at, message_count]
+
+    SessionDetailResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+          nullable: true
+        model:
+          type: string
+          nullable: true
+        started_at:
+          type: string
+          format: date-time
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessageInfo'
+      required: [id, started_at, messages]
+
+    MessageInfo:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [user, assistant, system, tool]
+          example: user
+        content:
+          type: string
+          nullable: true
+          example: Hello!
+        tool_name:
+          type: string
+          nullable: true
+          example: read_file
+        record_type:
+          type: string
+          example: text
+      required: [role, record_type]
+
+    SearchResult:
+      type: object
+      properties:
+        query:
+          type: string
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              session_id:
+                type: string
+              role:
+                type: string
+              snippet:
+                type: string
+            required: [session_id, role, snippet]
+      required: [query, results]
+
+    DeletedResponse:
+      type: object
+      properties:
+        deleted:
+          type: string
+          description: The session ID that was deleted.
+      required: [deleted]
+
+    ErrorBody:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "bad request: message cannot be empty"
+        code:
+          type: string
+          enum: [NOT_FOUND, BAD_REQUEST, UNAUTHORIZED, AGENT_ERROR, INTERNAL_ERROR]
+      required: [error, code]
+
+paths:
+  /health:
+    get:
+      summary: Health check (liveness probe)
+      description: Always returns 200 OK. Public, no auth required.
+      operationId: health
+      tags: [System]
+      security: []
+      responses:
+        '200':
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /version:
+    get:
+      summary: Version info
+      description: Returns the server version and configured model name. Public, no auth required.
+      operationId: version
+      tags: [System]
+      security: []
+      responses:
+        '200':
+          description: Version information.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionResponse'
+
+  /chat:
+    post:
+      summary: Send a chat message (synchronous)
+      description: |
+        Sends a message to the agent and blocks until the full response is available.
+        For streaming, use `/chat/stream` instead.
+      operationId: chat
+      tags: [Chat]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+      responses:
+        '200':
+          description: Agent response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+        '400':
+          description: Empty message.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Invalid or missing API key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: Agent thread unavailable or dropped response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+
+  /chat/stream:
+    post:
+      summary: Send a chat message (SSE streaming)
+      description: |
+        Sends a message and returns the response as Server-Sent Events.
+        Emits a `message` event with the full response text, then a `done` event.
+        Future versions will support token-by-token streaming.
+      operationId: chatStream
+      tags: [Chat]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+      responses:
+        '200':
+          description: SSE stream of response tokens.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  SSE format. Events:
+                  - `event: message\ndata: {"token":"..."}\n\n`
+                  - `event: done\ndata: [DONE]\n\n`
+        '400':
+          description: Empty message.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          description: Invalid or missing API key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+
+  /sessions:
+    get:
+      summary: List sessions
+      description: Returns recent sessions ordered by start time.
+      operationId: listSessions
+      tags: [Sessions]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+          description: Maximum number of sessions to return.
+      responses:
+        '200':
+          description: List of sessions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /sessions/{id}:
+    get:
+      summary: Get session detail
+      description: Returns a session with all its messages.
+      operationId: getSession
+      tags: [Sessions]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Session ID.
+      responses:
+        '200':
+          description: Session detail with messages.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionDetailResponse'
+        '404':
+          description: Session not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /sessions/{id}/export:
+    get:
+      summary: Export session as JSON
+      description: Returns the full session data as a JSON blob.
+      operationId: exportSession
+      tags: [Sessions]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Exported session data.
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: Session not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /sessions/{id}/delete:
+    post:
+      summary: Delete (end) a session
+      description: Marks a session as ended.
+      operationId: deleteSession
+      tags: [Sessions]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Session deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletedResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /search:
+    get:
+      summary: Search messages
+      description: Searches messages across all sessions by keyword.
+      operationId: searchSessions
+      tags: [Sessions]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search query string.
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+          description: Maximum number of results.
+      responses:
+        '200':
+          description: Search results.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+components:
+  responses:
+    Unauthorized:
+      description: Invalid or missing API key.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+
+tags:
+  - name: System
+    description: Health and version endpoints.
+  - name: Chat
+    description: Chat with the agent (sync and SSE streaming).
+  - name: Sessions
+    description: Session management and search.

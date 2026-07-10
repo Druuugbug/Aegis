@@ -1,0 +1,62 @@
+[package]
+name = "aegis-agent-core"
+version.workspace = true
+edition.workspace = true
+description = "Core engine for the Aegis cognitive agent runtime"
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "aegis_core"
+
+[dependencies]
+aegis-security = { path = "../aegis-security", version = "1.0.2" }
+aegis-feedback = { path = "../aegis-feedback", version = "1.0.2" }
+aegis-goals = { path = "../aegis-goals", version = "1.0.2" }
+aegis-mcp = { path = "../aegis-mcp", version = "1.0.2" }
+aegis-tools = { path = "../aegis-tools", version = "1.0.2" }
+aegis-types = { path = "../aegis-types", version = "1.0.2" }
+aegis-provider = { path = "../aegis-provider", version = "1.0.2" }
+aegis-record = { path = "../aegis-record", version = "1.0.2" }
+aegis-memory = { path = "../aegis-memory", version = "1.0.2", package = "aegis-agent-memory" }
+aegis-perception = { path = "../aegis-perception", version = "1.0.2" }
+aegis-learning = { path = "../aegis-learning", version = "1.0.2" }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = "0.9"
+toml = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+dirs-next = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true }
+strsim = { workspace = true }
+dotenvy = { workspace = true }
+sha2 = "0.10"
+base64 = { workspace = true }
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc", "block-padding"] }
+# SimpleX Chat channel: connects to an operator-managed `simplex-chat` CLI
+# process over its local WebSocket control API. `default-features = false`
+# + `websocket` (not `cli`, not `ffi`) keeps this on the Apache-2.0/MIT side
+# of the crate's conditional license — Aegis must never bundle/spawn the
+# simplex-chat binary itself. Exact version pinned: upstream has a high
+# breaking-change rate (11/19 releases as of 0.13.1).
+simploxide-client = { version = "=0.13.1", default-features = false, features = ["websocket"] }
+
+[dev-dependencies]
+tempfile = "3"
+aegis-a2a = { path = "../aegis-a2a", version = "1.0.2" }
+thiserror = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "graph_bench"
+harness = false

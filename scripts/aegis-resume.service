@@ -1,0 +1,35 @@
+# aegis resumable-task supervisor (systemd) — instant crash-restart.
+#
+# The standard, robust way to get second-level auto-restart on Linux: systemd
+# restarts the process within RestartSec of any crash/OOM, and again after a
+# reboot. Far better than cron polling.
+#
+# Install (user service):
+#   mkdir -p ~/.config/systemd/user
+#   cp scripts/aegis-resume.service ~/.config/systemd/user/
+#   # edit ExecStart path / WorkingDirectory below to match your install
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now aegis-resume.service
+#   journalctl --user -u aegis-resume -f      # watch it
+#
+# This runs the supervise loop, which itself exits 0 once all tasks finish;
+# Restart=on-failure means systemd only relaunches on a crash (non-zero exit),
+# not after clean completion. Use Restart=always if you want it to keep the
+# loop alive across clean exits too.
+
+[Unit]
+Description=aegis resumable-task supervisor (checkpoint-resume)
+After=network-online.target
+
+[Service]
+Type=simple
+# Adjust these to your environment:
+WorkingDirectory=%h
+Environment=AEGIS_BIN=%h/.cargo/bin/aegis
+Environment=AEGIS_BACKOFF=2
+ExecStart=%h/aegis/scripts/aegis-supervise.sh
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

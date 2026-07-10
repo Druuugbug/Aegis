@@ -1,0 +1,38 @@
+[package]
+name = "aegis-learning"
+version.workspace = true
+edition.workspace = true
+description = "Passive local intelligence for Aegis"
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# async
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+
+# serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# logging
+tracing = { workspace = true }
+
+# error
+anyhow = { workspace = true }
+
+# platform paths
+dirs-next = { workspace = true }
+
+# text
+regex = { workspace = true }
+
+# time
+chrono = { workspace = true }
+
+# identifiers
+uuid = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+tracing-subscriber = { workspace = true }
