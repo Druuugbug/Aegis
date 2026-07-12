@@ -38,7 +38,7 @@ pub use registry::{Tool, ToolContext, ToolRegistry};
 pub use tools::{
     BrowserTool, CheckpointManager, ClarifyTool, MaigretTool, PatchTool, ReadFileTool, SearchFilesTool,
     SessionSearchTool, SpawnTaskTool, TerminalTool, TodoTool, WebExtractTool, WebSearchTool,
-    WriteFileTool, read_todo_progress, todo_path, BackgroundTool,
+    WriteFileTool, read_todo_progress, todo_path, BackgroundTool, BgBackend,
 };
 pub use memory_search::MemorySearchTool;
 pub use record_search::RecordSearchTool;

@@ -61,7 +61,7 @@ impl Tool for SessionTool {
 
 impl SessionTool {
     fn open_store(&self) -> Result<aegis_record::SessionStore> {
-        let db_dir = dirs_next::home_dir().unwrap_or_default().join(".aegis");
+        let db_dir = aegis_types::paths::config_dir();
         aegis_record::SessionStore::open(&db_dir.join("sessions.db"))
     }
 

@@ -11,9 +11,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 fn cache_path() -> PathBuf {
-    dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".aegis")
+    aegis_types::paths::config_dir()
         .join("model_ctx.json")
 }
 

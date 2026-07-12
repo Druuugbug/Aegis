@@ -27,9 +27,7 @@ pub struct FileResourceProvider {
 impl FileResourceProvider {
     /// Create a new file resource provider rooted at ~/.aegis.
     pub fn new() -> Self {
-        let base_dir = dirs_next::home_dir()
-            .unwrap_or_default()
-            .join(".aegis");
+        let base_dir = aegis_types::paths::config_dir();
         Self { base_dir }
     }
 }

@@ -21,9 +21,7 @@ fn is_aegis_workspace(path: &Path) -> bool {
 }
 
 fn config_dir() -> PathBuf {
-    dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".aegis")
+    aegis_types::paths::config_dir()
 }
 
 /// Discover aegis source root. Priority:

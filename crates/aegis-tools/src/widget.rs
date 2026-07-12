@@ -37,10 +37,7 @@ pub struct WidgetFile {
 }
 
 pub fn widgets_path() -> PathBuf {
-    dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".aegis")
-        .join("widgets.json")
+    aegis_types::paths::config_dir().join("widgets.json")
 }
 
 pub fn load_widgets() -> Vec<Widget> {

@@ -29,9 +29,7 @@ impl WriteAheadLog {
 
     /// Return the default WAL directory (`~/.aegis/wal`).
     pub fn default_path() -> PathBuf {
-        dirs_next::home_dir()
-            .unwrap_or_else(|| PathBuf::from("/tmp"))
-            .join(".aegis")
+        aegis_types::paths::config_dir()
             .join("wal")
     }
 

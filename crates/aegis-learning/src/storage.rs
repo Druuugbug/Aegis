@@ -294,18 +294,7 @@ impl UserFactStore {
 /// `config::config_dir` logic in aegis-core but is duplicated here to
 /// avoid a hard dep on aegis-core (D29 — independent module).
 fn aegis_config_root() -> PathBuf {
-    if let Ok(home) = std::env::var("AEGIS_HOME") {
-        return PathBuf::from(home);
-    }
-    let legacy = dirs_next::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".aegis");
-    if legacy.is_dir() {
-        return legacy;
-    }
-    dirs_next::config_dir()
-        .unwrap_or(legacy)
-        .join("aegis")
+    aegis_types::paths::config_dir()
 }
 
 /// Normalize a room name to a safe directory segment.

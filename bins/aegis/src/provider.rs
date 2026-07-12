@@ -153,7 +153,9 @@ pub async fn build_tool_registry(
     reg.register(Arc::new(ClarifyTool));
     // Long-running process supervisor: start/poll/kill background jobs so the
     // agent can drive long tasks (builds, training, pipelines) without blocking.
-    reg.register(Arc::new(BackgroundTool::new()));
+    reg.register(Arc::new(BackgroundTool::new().with_backend(
+        aegis_tools::BgBackend::from_config(&config.tools.background_backend),
+    )));
     // Checkpoint-resume: let the agent register a long task bound to this session
     // so it auto-resumes (todo + memory intact) after a restart/crash.
     reg.register(Arc::new(aegis_core::TaskTool));

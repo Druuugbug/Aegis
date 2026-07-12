@@ -30,10 +30,7 @@ fn default_port() -> u64 {
 }
 
 fn store_path() -> PathBuf {
-    dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".aegis")
-        .join("remotes.json")
+    aegis_types::paths::config_dir().join("remotes.json")
 }
 
 /// Load all stored credentials (name → cred).

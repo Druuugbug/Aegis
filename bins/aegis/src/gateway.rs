@@ -606,6 +606,40 @@ fn reply_simple(reply: Reply, text: String) {
 /// instead of packaging the failure into a normal `Final` message — that
 /// distinction is what lets the TUI render a red "✗ error" summary instead
 /// of a misleading green "✓ done".
+/// Execute a `!cmd` in-session shell passthrough on the daemon host. `!` is the
+/// user's own shell — it runs verbatim with NO command gating (the user is in
+/// full control of their host). It is timed and the result is injected into the
+/// agent's context (that injected copy is credential-sanitized so secrets never
+/// reach the model; the user's own terminal sees raw output).
+async fn run_inline_shell(cmd: &str, a: &mut Agent) -> String {
+    use aegis_security::sanitize_credentials;
+    let start = std::time::Instant::now();
+    let result = tokio::process::Command::new("sh").arg("-c").arg(cmd).output().await;
+    let secs = start.elapsed().as_secs_f64();
+    let stamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let (body, status) = match result {
+        Ok(o) => {
+            let mut s = String::from_utf8_lossy(&o.stdout).into_owned();
+            let err = String::from_utf8_lossy(&o.stderr);
+            if !err.trim().is_empty() {
+                s.push_str(&err);
+            }
+            let ok = if o.status.success() { "ok" } else { "non-zero exit" };
+            (s, ok)
+        }
+        Err(e) => (format!("(failed to run: {e})"), "error"),
+    };
+    // Let the agent know what the user did (bounded + sanitized), so follow-up
+    // natural-language questions work — without leaking secrets to the model.
+    let ctx_body: String = sanitize_credentials(&body).chars().take(2000).collect();
+    a.add_background_context(
+        "user-shell",
+        &format!("The user ran a shell command in-session:\n$ {cmd}\n(status: {status}, took {secs:.1}s)\noutput:\n{ctx_body}"),
+    );
+    // The user sees their own raw output (they typed the command).
+    format!("$ {cmd}\n{}\n⏱ {secs:.1}s · {status} · {stamp}", body.trim_end())
+}
+
 async fn run_turn(a: &mut Agent, text: &str, is_cli: bool) -> Result<String> {
     let trimmed = text.trim();
     // `/retry`: undo the last turn and re-run the last user message (a real
@@ -620,7 +654,18 @@ async fn run_turn(a: &mut Agent, text: &str, is_cli: bool) -> Result<String> {
         }
         return Ok("Nothing to retry.".to_string());
     }
-    let out = if is_cli && trimmed.starts_with('/') {
+    let out = if is_cli && trimmed.starts_with('!') {
+        // In-session shell passthrough: run a shell command directly on the
+        // daemon host (same host as the agent's `terminal` tool), without an
+        // LLM round-trip. The result is injected into the agent's context so
+        // aegis knows what the user just ran.
+        let cmd = trimmed[1..].trim().to_string();
+        if cmd.is_empty() {
+            "用法：!<command>  （会话内直接执行 shell，例：!ls -la）".to_string()
+        } else {
+            run_inline_shell(&cmd, a).await
+        }
+    } else if is_cli && trimmed.starts_with('/') {
         match crate::chat::handle_slash_command(trimmed, a).await {
             Some(Some(msg)) => msg,
             Some(None) => String::new(),

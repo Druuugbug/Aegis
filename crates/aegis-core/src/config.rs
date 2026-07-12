@@ -857,6 +857,16 @@ pub struct ToolsConfig {
     pub timeout_secs: u64,
     #[serde(default)]
     pub disabled: Vec<String>,
+    /// Backend for the `background` long-task tool: `auto` (use tmux if
+    /// installed, else child process — default), `tmux` (force tmux; error if
+    /// absent), or `child` (legacy detached child process). tmux-backed tasks
+    /// have an independent lifetime and are re-attachable (`tmux attach`).
+    #[serde(default = "d_bg_backend")]
+    pub background_backend: String,
+}
+
+fn d_bg_backend() -> String {
+    "auto".to_string()
 }
 
 // ── Feedback ──
@@ -1103,6 +1113,7 @@ impl Default for ToolsConfig {
         Self {
             timeout_secs: d_tool_timeout(),
             disabled: Vec::new(),
+            background_backend: d_bg_backend(),
         }
     }
 }
@@ -1671,34 +1682,26 @@ impl Config {
 ///
 /// **Migration**: If `~/.aegis` exists (legacy Linux path), it is used regardless
 /// of platform, for backward compatibility. New installs use the platform-native path.
+///
+/// Delegates to [`aegis_types::paths::config_dir`] — the single source of truth
+/// shared with every other crate (see docs/aegis-config-root-unify-design.md).
 pub fn config_dir() -> PathBuf {
-    if let Ok(home) = std::env::var("AEGIS_HOME") {
-        return PathBuf::from(home);
-    }
-
-    // Legacy migration: if ~/.aegis exists, keep using it (backward compat)
-    let legacy = dirs_next::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".aegis");
-    if legacy.is_dir() {
-        return legacy;
-    }
-
-    // Platform-native config dir with "aegis" subdirectory
-    // Linux: ~/.config/aegis
-    // macOS: ~/Library/Application Support/aegis
-    // Windows: %APPDATA%/aegis
-    if let Some(base) = dirs_next::config_dir() {
-        base.join("aegis")
-    } else {
-        // Fallback: ~/.aegis
-        legacy
-    }
+    aegis_types::paths::config_dir()
 }
 
 /// Default config file path.
 pub fn config_path() -> PathBuf {
-    config_dir().join("config.toml")
+    aegis_types::paths::config_path()
+}
+
+/// The legacy `~/.aegis` root (for split-root detection in `doctor`).
+pub fn legacy_root() -> Option<PathBuf> {
+    aegis_types::paths::legacy_root()
+}
+
+/// The platform-native `~/.config/aegis` root (for split-root detection).
+pub fn platform_root() -> Option<PathBuf> {
+    aegis_types::paths::platform_root()
 }
 
 #[cfg(test)]

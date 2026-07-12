@@ -7,3 +7,4 @@
 //! tool results, and document content.
 
 pub mod message;
+pub mod paths;

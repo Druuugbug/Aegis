@@ -651,10 +651,7 @@ pub struct CheckpointManager;
 
 impl CheckpointManager {
     fn checkpoint_dir() -> std::path::PathBuf {
-        let dir = dirs_next::home_dir()
-            .unwrap_or_default()
-            .join(".aegis")
-            .join("checkpoints");
+        let dir = aegis_types::paths::config_dir().join("checkpoints");
         let _ = std::fs::create_dir_all(&dir);
         dir
     }
@@ -741,9 +738,7 @@ impl CheckpointManager {
 
 /// Path to the session's todo file (`~/.aegis/todos/<session>.txt`).
 pub fn todo_path(session_id: &str) -> std::path::PathBuf {
-    dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".aegis")
+    aegis_types::paths::config_dir()
         .join("todos")
         .join(format!("{session_id}.txt"))
 }
@@ -921,20 +916,86 @@ struct BgTask {
 pub struct BackgroundTool {
     dir: std::path::PathBuf,
     tasks: Arc<std::sync::Mutex<std::collections::HashMap<String, BgTask>>>,
+    backend: BgBackend,
 }
 
 impl BackgroundTool {
     /// Create a background-tool with logs under `~/.aegis/bg/`.
     pub fn new() -> Self {
-        let dir = dirs_next::home_dir()
-            .unwrap_or_default()
-            .join(".aegis")
-            .join("bg");
+        let dir = aegis_types::paths::config_dir().join("bg");
         Self {
             dir,
             tasks: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            backend: BgBackend::Auto,
         }
     }
+
+    /// Set the execution backend (from `[tools] background_backend` config).
+    pub fn with_backend(mut self, backend: BgBackend) -> Self {
+        self.backend = backend;
+        self
+    }
+}
+
+/// Backend for the `background` tool. `Auto` uses tmux when available (giving
+/// tasks an independent lifetime + `tmux attach` re-attachability), else falls
+/// back to a detached child process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BgBackend {
+    Auto,
+    Tmux,
+    Child,
+}
+
+impl BgBackend {
+    /// Parse from the config string (`auto`/`tmux`/`child`; unknown → Auto).
+    pub fn from_config(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "tmux" => BgBackend::Tmux,
+            "child" => BgBackend::Child,
+            _ => BgBackend::Auto,
+        }
+    }
+
+    /// Resolve `Auto` to a concrete backend based on tmux availability.
+    fn effective(self) -> BgBackend {
+        match self {
+            BgBackend::Auto => {
+                if tmux_available() {
+                    BgBackend::Tmux
+                } else {
+                    BgBackend::Child
+                }
+            }
+            other => other,
+        }
+    }
+}
+
+/// Whether the `tmux` binary is available.
+fn tmux_available() -> bool {
+    std::process::Command::new("tmux")
+        .arg("-V")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// tmux session name for a task id (prefixed + sanitized to avoid collisions
+/// with the user's own sessions and to reject shell/tmux metacharacters).
+fn tmux_session_name(id: &str) -> String {
+    let safe: String = id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    format!("aegis-{safe}")
+}
+
+/// POSIX single-quote a string for safe embedding in an `sh -c` command.
+fn posix_squote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
 }
 
 impl Default for BackgroundTool {
@@ -962,10 +1023,49 @@ fn tail_file(path: &std::path::Path, lines: usize) -> String {
 }
 
 /// Persist `(pid, cmd)` for a background task so a later aegis process can
-/// re-discover it.
+/// re-discover it. `backend`/`session` are set for tmux-backed tasks so a
+/// fresh process can query/kill them via tmux rather than by pid.
 fn write_bg_meta(dir: &std::path::Path, id: &str, pid: u32, cmd: &str) {
-    let meta = json!({ "pid": pid, "cmd": cmd });
+    write_bg_meta_full(dir, id, pid, cmd, "child", "");
+}
+
+fn write_bg_meta_full(dir: &std::path::Path, id: &str, pid: u32, cmd: &str, backend: &str, session: &str) {
+    let meta = json!({ "pid": pid, "cmd": cmd, "backend": backend, "session": session, "started": now_epoch() });
     let _ = std::fs::write(dir.join(format!("{id}.meta.json")), meta.to_string());
+}
+
+/// Current unix time in seconds.
+fn now_epoch() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Persisted start time (unix secs) for a background task, if recorded.
+fn read_bg_started(dir: &std::path::Path, id: &str) -> Option<u64> {
+    let content = std::fs::read_to_string(dir.join(format!("{id}.meta.json"))).ok()?;
+    let v: Value = serde_json::from_str(&content).ok()?;
+    v["started"].as_u64().filter(|s| *s > 0)
+}
+
+/// Human-friendly duration (`45s`, `3m12s`, `1h4m`).
+fn human_dur(secs: u64) -> String {
+    if secs < 60 {
+        format!("{secs}s")
+    } else if secs < 3600 {
+        format!("{}m{}s", secs / 60, secs % 60)
+    } else {
+        format!("{}h{}m", secs / 3600, (secs % 3600) / 60)
+    }
+}
+
+/// Elapsed-since-start suffix for a persisted task (e.g. ` (ran 3m12s)`), or "".
+fn bg_elapsed_suffix(dir: &std::path::Path, id: &str) -> String {
+    match read_bg_started(dir, id) {
+        Some(started) => format!(" (ran {})", human_dur(now_epoch().saturating_sub(started))),
+        None => String::new(),
+    }
 }
 
 /// Read persisted `(pid, cmd)` for a background task id.
@@ -975,6 +1075,28 @@ fn read_bg_meta(dir: &std::path::Path, id: &str) -> Option<(u32, String)> {
     let pid = v["pid"].as_u64()? as u32;
     let cmd = v["cmd"].as_str().unwrap_or("").to_string();
     Some((pid, cmd))
+}
+
+/// Read the tmux session name for a task if it is tmux-backed.
+fn read_bg_session(dir: &std::path::Path, id: &str) -> Option<String> {
+    let content = std::fs::read_to_string(dir.join(format!("{id}.meta.json"))).ok()?;
+    let v: Value = serde_json::from_str(&content).ok()?;
+    if v["backend"].as_str() == Some("tmux") {
+        v["session"].as_str().filter(|s| !s.is_empty()).map(|s| s.to_string())
+    } else {
+        None
+    }
+}
+
+/// Whether a tmux session exists.
+fn tmux_session_alive(session: &str) -> bool {
+    std::process::Command::new("tmux")
+        .args(["has-session", "-t", session])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 /// List all persisted background tasks as `(id, pid, cmd)`.
@@ -1055,6 +1177,47 @@ impl Tool for BackgroundTool {
                     format!("bg-{:06x}", nanos & 0xff_ffff)
                 });
                 let log = self.dir.join(format!("{id}.log"));
+
+                // tmux backend: run in a detached tmux session for an
+                // independent lifetime (survives aegis restart/exit) and live
+                // re-attachability. Output is tee'd to the same logfile so the
+                // existing `logs` action keeps working.
+                if self.backend.effective() == BgBackend::Tmux {
+                    if !tmux_available() {
+                        return Ok("Error: background_backend=tmux but tmux is not installed. Install tmux or set [tools] background_backend = \"child\".".to_string());
+                    }
+                    let session = tmux_session_name(&id);
+                    if tmux_session_alive(&session) {
+                        return Ok(format!("Error: tmux session '{session}' already exists (task id '{id}' in use)."));
+                    }
+                    let inner = format!("{cmd} 2>&1 | tee {}", posix_squote(&log.display().to_string()));
+                    let started = std::process::Command::new("tmux")
+                        .args(["new-session", "-d", "-s", &session, "-c"])
+                        .arg(&ctx.cwd)
+                        .arg("sh")
+                        .arg("-c")
+                        .arg(&inner)
+                        .status()
+                        .map(|s| s.success())
+                        .unwrap_or(false);
+                    if !started {
+                        return Ok(format!("Error: failed to start tmux session '{session}' for task '{id}'."));
+                    }
+                    // Keep the pane after the command exits so `status` can
+                    // distinguish "finished" from "gone".
+                    let _ = std::process::Command::new("tmux")
+                        .args(["set-option", "-t", &session, "remain-on-exit", "on"])
+                        .status();
+                    write_bg_meta_full(&self.dir, &id, 0, &cmd, "tmux", &session);
+                    return Ok(format!(
+                        "Started background task '{id}' in tmux session '{session}'.\n\
+                         Attach (watch / type commands live): tmux attach -t {session}\n\
+                         Logs: {}\n\
+                         Check: background action=status id={id}  •  kill: background action=kill id={id}",
+                        log.display()
+                    ));
+                }
+
                 let file = std::fs::File::create(&log)
                     .map_err(|e| anyhow::anyhow!("create log file: {e}"))?;
                 let file2 = file.try_clone().map_err(|e| anyhow::anyhow!("clone log file: {e}"))?;
@@ -1105,11 +1268,21 @@ impl Tool for BackgroundTool {
                     }
                 }
                 // Otherwise fall back to persisted metadata (job started by an
-                // earlier aegis process) and check the pid for liveness.
+                // earlier aegis process). tmux-backed tasks are queried via the
+                // tmux session; child tasks via pid liveness.
+                if let Some(session) = read_bg_session(&self.dir, id) {
+                    let state = if tmux_session_alive(&session) { "RUNNING" } else { "EXITED/gone" };
+                    let cmd = read_bg_meta(&self.dir, id).map(|(_, c)| c).unwrap_or_default();
+                    let elapsed = bg_elapsed_suffix(&self.dir, id);
+                    return Ok(format!(
+                        "Task '{id}' {state}{elapsed} (tmux session '{session}').\nAttach: tmux attach -t {session}\ncmd: {cmd}"
+                    ));
+                }
                 match read_bg_meta(&self.dir, id) {
                     Some((pid, cmd)) => {
                         let state = if pid_alive(pid) { "RUNNING" } else { "EXITED" };
-                        Ok(format!("Task '{id}' {state} (pid {pid}, from earlier session).\ncmd: {cmd}"))
+                        let elapsed = bg_elapsed_suffix(&self.dir, id);
+                        Ok(format!("Task '{id}' {state}{elapsed} (pid {pid}, from earlier session).\ncmd: {cmd}"))
                     }
                     None => Ok(format!("No background task '{id}'. Use action=list.")),
                 }
@@ -1144,7 +1317,14 @@ impl Tool for BackgroundTool {
                         return Ok(format!("Killed background task '{id}'."));
                     }
                 }
-                // Otherwise kill by persisted pid (job from an earlier session).
+                // Otherwise kill by tmux session or persisted pid.
+                if let Some(session) = read_bg_session(&self.dir, id) {
+                    let _ = std::process::Command::new("tmux")
+                        .args(["kill-session", "-t", &session])
+                        .status();
+                    let _ = std::fs::remove_file(self.dir.join(format!("{id}.meta.json")));
+                    return Ok(format!("Killed background task '{id}' (tmux session '{session}')."));
+                }
                 match read_bg_meta(&self.dir, id) {
                     Some((pid, _)) => {
                         let _ = std::process::Command::new("kill").arg(pid.to_string()).status();
@@ -1172,8 +1352,13 @@ impl Tool for BackgroundTool {
                     if seen.contains(&id) {
                         continue;
                     }
-                    let state = if pid_alive(pid) { "RUNNING" } else { "exited" };
-                    out.push_str(&format!("  {id}: {state} (pid {pid})  {cmd}\n"));
+                    if let Some(session) = read_bg_session(&self.dir, &id) {
+                        let state = if tmux_session_alive(&session) { "RUNNING" } else { "exited" };
+                        out.push_str(&format!("  {id}: {state} (tmux {session})  {cmd}\n"));
+                    } else {
+                        let state = if pid_alive(pid) { "RUNNING" } else { "exited" };
+                        out.push_str(&format!("  {id}: {state} (pid {pid})  {cmd}\n"));
+                    }
                 }
                 if out == "Background tasks:\n" {
                     return Ok("No background tasks.".to_string());
@@ -1267,10 +1452,7 @@ impl Tool for SessionSearchTool {
         let query = args["query"].as_str().unwrap_or("");
         let limit = args["limit"].as_u64().unwrap_or(5) as u32;
 
-        let db_path = dirs_next::home_dir()
-            .unwrap_or_default()
-            .join(".aegis")
-            .join("sessions.db");
+        let db_path = aegis_types::paths::config_dir().join("sessions.db");
         if !db_path.exists() {
             return Ok("No session history available.".to_string());
         }
@@ -1683,9 +1865,9 @@ impl WebSearchTool {
     }
 
     fn load_config_key(key: &str) -> Option<String> {
-        // Try ~/.aegis/config.toml [tools] section first
-        if let Some(home) = dirs_next::home_dir() {
-            let config_path = home.join(".aegis").join("config.toml");
+        // Try <config_dir>/config.toml [tools] section first
+        {
+            let config_path = aegis_types::paths::config_path();
             if let Ok(content) = std::fs::read_to_string(&config_path) {
                 if let Ok(val) = content.parse::<toml::Value>() {
                     if let Some(s) = val.get("tools").and_then(|t| t.get(key)).and_then(|v| v.as_str()) {
@@ -2280,6 +2462,35 @@ fn format_maigret_report(username: &str, data: &Value) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn bg_backend_from_config_parses() {
+        assert_eq!(BgBackend::from_config("tmux"), BgBackend::Tmux);
+        assert_eq!(BgBackend::from_config("  TMUX "), BgBackend::Tmux);
+        assert_eq!(BgBackend::from_config("child"), BgBackend::Child);
+        assert_eq!(BgBackend::from_config("auto"), BgBackend::Auto);
+        assert_eq!(BgBackend::from_config("nonsense"), BgBackend::Auto);
+    }
+
+    #[test]
+    fn bg_backend_forced_passthrough() {
+        // Non-auto backends are returned as-is regardless of tmux availability.
+        assert_eq!(BgBackend::Child.effective(), BgBackend::Child);
+        assert_eq!(BgBackend::Tmux.effective(), BgBackend::Tmux);
+    }
+
+    #[test]
+    fn tmux_session_name_sanitizes_and_prefixes() {
+        assert_eq!(tmux_session_name("job1"), "aegis-job1");
+        assert_eq!(tmux_session_name("a b;c$(x)"), "aegis-a_b_c__x_");
+        assert_eq!(tmux_session_name("ok-_1"), "aegis-ok-_1");
+    }
+
+    #[test]
+    fn posix_squote_escapes_single_quotes() {
+        assert_eq!(posix_squote("abc"), "'abc'");
+        assert_eq!(posix_squote("a'b"), "'a'\\''b'");
+    }
 
     fn make_ctx(cwd: std::path::PathBuf) -> ToolContext<'static> {
         ToolContext {

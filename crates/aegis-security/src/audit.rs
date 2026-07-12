@@ -29,10 +29,7 @@ impl AuditLog {
 
     /// Create an audit log with a configurable rotation cap (MB; `0` = no cap).
     pub fn with_max_mb(max_mb: u64) -> Self {
-        let dir = dirs_next::home_dir()
-            .unwrap_or_default()
-            .join(".aegis")
-            .join("logs");
+        let dir = aegis_types::paths::config_dir().join("logs");
         let _ = std::fs::create_dir_all(&dir);
         Self {
             path: dir.join("audit.log"),

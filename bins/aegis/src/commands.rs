@@ -285,6 +285,31 @@ pub fn run_task(action: TaskAction) -> Result<()> {
 
 pub fn run_doctor() -> Result<()> {
     let cfg_dir = config::config_dir();
+    println!("{} config dir: {}", "\u{2713}".green(), cfg_dir.display());
+
+    // Detect a split config root: the runtime uses `cfg_dir`, but if a legacy
+    // `~/.aegis` and the platform `~/.config/aegis` BOTH exist with data, the
+    // user's config/data may be stranded in the one not currently in use.
+    if let (Some(legacy), Some(platform)) = (config::legacy_root(), config::platform_root()) {
+        if legacy.is_dir() && platform.is_dir() && legacy != platform {
+            let other = if cfg_dir == legacy { &platform } else { &legacy };
+            if other != &cfg_dir
+                && (other.join("config.toml").exists() || other.join("memory").is_dir())
+            {
+                println!(
+                    "{} split config root detected — runtime uses {}, but {} also has data.",
+                    "\u{26a0}".yellow(),
+                    cfg_dir.display(),
+                    other.display()
+                );
+                println!(
+                    "    合并建议：把 {} 里的内容拷到 {}，或设置 AEGIS_HOME 显式锁定一个目录。",
+                    other.display(),
+                    cfg_dir.display()
+                );
+            }
+        }
+    }
 
     let config_path = cfg_dir.join("config.toml");
     if config_path.exists() {

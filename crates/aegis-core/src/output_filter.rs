@@ -450,9 +450,7 @@ impl OutputFilter for UserFilter {
 }
 
 fn filters_config_path() -> std::path::PathBuf {
-    dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".aegis")
+    aegis_types::paths::config_dir()
         .join("filters.toml")
 }
 

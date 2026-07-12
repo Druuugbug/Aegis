@@ -27,9 +27,7 @@ struct SecretStore {
 }
 
 fn store_path() -> PathBuf {
-    dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".aegis")
+    aegis_types::paths::config_dir()
         .join("secrets.json")
 }
 

@@ -154,6 +154,41 @@ fn human_tokens(n: u64) -> String {
 }
 
 
+/// Read a line with terminal echo disabled (for secrets like API keys).
+/// Falls back to a normal, *visible* read on non-unix or when stdin is not a
+/// TTY (and says so, so the user isn't misled into thinking it was hidden).
+pub(crate) fn read_secret(prompt: &str) -> Option<String> {
+    use std::io::{BufRead, Write};
+    eprint!("{prompt}");
+    let _ = std::io::stderr().flush();
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::AsRawFd;
+        let fd = std::io::stdin().as_raw_fd();
+        if unsafe { libc::isatty(fd) } == 1 {
+            unsafe {
+                let mut term: libc::termios = std::mem::zeroed();
+                if libc::tcgetattr(fd, &mut term) == 0 {
+                    let orig = term;
+                    term.c_lflag &= !libc::ECHO;
+                    libc::tcsetattr(fd, libc::TCSANOW, &term);
+                    let mut line = String::new();
+                    let res = std::io::stdin().lock().read_line(&mut line);
+                    libc::tcsetattr(fd, libc::TCSANOW, &orig);
+                    eprintln!(); // the Enter keystroke wasn't echoed; add the newline
+                    return res.ok().map(|_| line.trim().to_string());
+                }
+            }
+        }
+    }
+
+    // Fallback: visible read.
+    eprintln!("{}", "  (note: input will be visible)".dimmed());
+    let mut line = String::new();
+    std::io::stdin().lock().read_line(&mut line).ok().map(|_| line.trim().to_string())
+}
+
 #[allow(dead_code)]
 pub fn run_setup_wizard() -> Option<String> {
     eprintln!();
@@ -196,9 +231,9 @@ pub fn run_setup_wizard() -> Option<String> {
     // Step 3: api_key
     eprintln!("{}", "Step 3/5 — API Key".bright_cyan());
     eprintln!("  {} Leave blank to use environment variable", "Tip:".dimmed());
-    let api_key = match rl.readline("  API Key: ") {
-        Ok(s) => s.trim().to_string(),
-        Err(_) => return Some("Setup cancelled.".to_string()),
+    let api_key = match read_secret("  API Key: ") {
+        Some(s) => s,
+        None => return Some("Setup cancelled.".to_string()),
     };
 
     // Step 4: model
@@ -227,7 +262,8 @@ pub fn run_setup_wizard() -> Option<String> {
     eprintln!("{}", "─────────────────────────────".dimmed());
     eprintln!();
 
-    let confirm = match rl.readline("  Write to ~/.aegis/config.toml? [Y/n]: ") {
+    let cfg_path = config::config_path();
+    let confirm = match rl.readline(&format!("  Write to {}? [Y/n]: ", cfg_path.display())) {
         Ok(s) => s,
         Err(_) => return Some("Setup cancelled.".to_string()),
     };

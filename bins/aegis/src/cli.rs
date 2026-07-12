@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "aegis", about = "A cognitive agent runtime")]
+#[command(name = "aegis", version, about = "A cognitive agent runtime")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
@@ -17,6 +17,12 @@ pub enum Commands {
     },
     /// Interactive first-run setup wizard (provider, API key, model → config.toml)
     Setup,
+    /// Guided onboarding to reach Aegis from anywhere (chat channels / A2A).
+    ///
+    /// Lists routes (Telegram / Feishu / Discord / Slack / SimpleX / A2A),
+    /// collects what each needs (tokens read hidden), writes `[gateway.*]`
+    /// config, and prints how to start.
+    Connect,
     /// Manage A2A peer trust (identity → sandbox policy).
     ///
     /// Trust levels: owner | trusted | standard | restricted | read_only.

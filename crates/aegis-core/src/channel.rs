@@ -242,9 +242,7 @@ impl FileInterventionWatcher {
 
     /// Default paths under ~/.aegis/
     pub fn default_paths() -> Self {
-        let base = dirs_next::home_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("."))
-            .join(".aegis");
+        let base = aegis_types::paths::config_dir();
         Self {
             intervene_path: base.join("intervene.txt"),
             keyinfo_path: base.join("keyinfo.txt"),

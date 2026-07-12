@@ -45,6 +45,15 @@ pub fn print_welcome(version: &str, _model: &str, session_id: &str) {
         dot,
         "/help · /setup · Ctrl+C to interrupt".dimmed(),
     );
+    // Running inside tmux? The REPL uses raw mode, so the mouse wheel is sent
+    // as arrow keys (→ input history) and can't scroll scrollback. Tell the
+    // user how to scroll long output via tmux itself.
+    if std::env::var_os("TMUX").is_some() {
+        eprintln!(
+            "  {}",
+            "tmux: 滚轮看历史请先 `tmux set -g mouse on`，或按 prefix+[ 进入复制模式滚动".dimmed()
+        );
+    }
     eprintln!();
 }
 

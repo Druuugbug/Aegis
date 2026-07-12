@@ -9,14 +9,13 @@
 //! knowledge so `backup`, `uninstall`, `doctor`, and an `artifacts` query
 //! command can all read from one source.
 //!
-//! Two important realities this manifest records faithfully (see
-//! docs/aegis-artifact-manifest-design.md §2.2):
-//!  - Most products live under [`crate::config::config_dir`].
-//!  - A handful (`secrets.json`, `peers.json`, `remotes.json`, `checkpoints/`,
-//!    `wal/`, intervention files) are hardcoded to `~/.aegis` in their own
-//!    modules, so when `config_dir()` resolves to `~/.config/aegis` the
-//!    products split across two roots. This manifest lists both roots as-is;
-//!    unifying them is separate, migration-sensitive work and is NOT done here.
+//! Since the config-root unification (docs/aegis-config-root-unify-design.md),
+//! **all** artifacts live under a single root ([`crate::config::config_dir`]).
+//! The former split — where `secrets.json`, `peers.json`, `remotes.json`,
+//! `checkpoints/`, `wal/` and the intervention files were hardcoded to
+//! `~/.aegis` in their own modules — has been removed: every module now routes
+//! through `aegis_types::paths::config_dir()`. `aegis doctor` still detects a
+//! *legacy* split on machines that predate the unification and advises merging.
 
 use std::path::PathBuf;
 
@@ -64,10 +63,10 @@ impl ArtifactKind {
 /// Which root directory an artifact lives under.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Root {
-    /// Resolved via [`crate::config::config_dir`].
+    /// Resolved via [`crate::config::config_dir`]. Since the config-root
+    /// unification (docs/aegis-config-root-unify-design.md), *all* artifacts
+    /// live here — the former `~/.aegis` split is gone.
     ConfigDir,
-    /// Hardcoded `~/.aegis` in the owning module (see module docs §2.2).
-    LegacyHome,
 }
 
 impl Root {
@@ -75,9 +74,6 @@ impl Root {
     pub fn base(&self) -> PathBuf {
         match self {
             Root::ConfigDir => crate::config::config_dir(),
-            Root::LegacyHome => dirs_next::home_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join(".aegis"),
         }
     }
 
@@ -85,7 +81,6 @@ impl Root {
     pub fn as_str(&self) -> &'static str {
         match self {
             Root::ConfigDir => "config_dir",
-            Root::LegacyHome => "~/.aegis",
         }
     }
 }
@@ -146,14 +141,14 @@ const ROWS: &[Row] = &[
     ("readline_history", "readline_history", Root::ConfigDir, ArtifactKind::Runtime, false, false, "REPL input history"),
     ("swap_state", "swap-state.json", Root::ConfigDir, ArtifactKind::Runtime, false, false, "Self-upgrade swap state"),
     ("update_check", "update_check.json", Root::ConfigDir, ArtifactKind::Cache, false, false, "Update-check cache"),
-    // ── Root B: hardcoded ~/.aegis (see module docs §2.2) ─────────────────
-    ("secrets", "secrets.json", Root::LegacyHome, ArtifactKind::Secrets, true, true, "Credential vault (excluded from backup by default)"),
-    ("peers", "peers.json", Root::LegacyHome, ArtifactKind::Config, true, false, "A2A peers"),
-    ("remotes", "remotes.json", Root::LegacyHome, ArtifactKind::Config, true, true, "SSH remotes (may contain passwords)"),
-    ("checkpoints", "checkpoints", Root::LegacyHome, ArtifactKind::Runtime, false, false, "Pre-write file checkpoints"),
-    ("wal", "wal", Root::LegacyHome, ArtifactKind::Memory, false, false, "Memory write-ahead log"),
-    ("intervene", "intervene.txt", Root::LegacyHome, ArtifactKind::Runtime, false, false, "Channel intervention file"),
-    ("keyinfo", "keyinfo.txt", Root::LegacyHome, ArtifactKind::Runtime, false, false, "Channel key-info file"),
+    // ── Formerly hardcoded ~/.aegis, now unified under config_dir() ───────
+    ("secrets", "secrets.json", Root::ConfigDir, ArtifactKind::Secrets, true, true, "Credential vault (excluded from backup by default)"),
+    ("peers", "peers.json", Root::ConfigDir, ArtifactKind::Config, true, false, "A2A peers"),
+    ("remotes", "remotes.json", Root::ConfigDir, ArtifactKind::Config, true, true, "SSH remotes (may contain passwords)"),
+    ("checkpoints", "checkpoints", Root::ConfigDir, ArtifactKind::Runtime, false, false, "Pre-write file checkpoints"),
+    ("wal", "wal", Root::ConfigDir, ArtifactKind::Memory, false, false, "Memory write-ahead log"),
+    ("intervene", "intervene.txt", Root::ConfigDir, ArtifactKind::Runtime, false, false, "Channel intervention file"),
+    ("keyinfo", "keyinfo.txt", Root::ConfigDir, ArtifactKind::Runtime, false, false, "Channel key-info file"),
 ];
 
 /// All known artifacts (Root A + Root B), with resolved absolute paths.
@@ -315,9 +310,9 @@ mod tests {
     }
 
     #[test]
-    fn both_roots_represented() {
-        assert!(all().iter().any(|a| a.root == Root::ConfigDir));
-        assert!(all().iter().any(|a| a.root == Root::LegacyHome));
+    fn all_under_config_dir_after_unification() {
+        // Post-unification, every artifact resolves under the single config root.
+        assert!(all().iter().all(|a| a.root == Root::ConfigDir));
     }
 
     #[test]

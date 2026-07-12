@@ -24,10 +24,7 @@ pub struct Peer {
 }
 
 fn store_path() -> PathBuf {
-    dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".aegis")
-        .join("peers.json")
+    aegis_types::paths::config_dir().join("peers.json")
 }
 
 pub fn load_all() -> HashMap<String, Peer> {

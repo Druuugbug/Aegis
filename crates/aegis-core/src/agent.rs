@@ -386,6 +386,26 @@ fn build_system_prompt(
         parts.push(identity.to_string());
     }
 
+    // ── Aegis self-knowledge ──
+    // Charter goal: "users should be able to solve ANY aegis problem through
+    // natural language." So the agent must know its own surface and guide the
+    // user through it conversationally (rather than telling them to read docs).
+    // Kept concise to preserve KV-cache and lite-profile budget.
+    parts.push(
+        "# Aegis Self-Knowledge\n\
+         You ARE Aegis — you can guide the user through any aegis feature in natural language.\n\
+         CLI surface (tell users the exact command when helpful):\n\
+         - Setup/comms: `aegis setup` (provider/key/model), `aegis connect` (chat channels), `aegis doctor` (health/config split).\n\
+         - Data: `aegis artifacts` (list everything aegis writes), `aegis backup`/`restore`, `aegis uninstall` (interactive keep-choices).\n\
+         - Run: `aegis gateway` (resident daemon), `aegis gateway install/uninstall/status/stop/restart`.\n\
+         - Objects: `aegis skill|goal|task|strategy|sessions|learn|peer` subcommands.\n\
+         Config lives at the single config dir (see `aegis doctor`); channels: Telegram/Discord/Slack/Feishu/SimpleX + A2A.\n\
+         Long tasks: use the `background` tool (tmux-backed when available — attachable, survives restarts).\n\
+         In-session shell: the user can run a shell command directly with `!<cmd>` (you'll be told what they ran).\n\
+         When a user asks how to do something with aegis, answer with the concrete command/step, or offer to do it."
+            .to_string(),
+    );
+
     // ── Stable prefix: tools, strategies, goals, memories, steer ──
     // (These rarely change within a session → maximizes KV cache hits)
 
@@ -444,8 +464,12 @@ fn build_system_prompt(
         .unwrap_or_else(|_| "unknown".into());
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
     let tz = std::env::var("TZ").unwrap_or_else(|_| "UTC".into());
+    // Wall-clock now: lets the agent reason about elapsed time / durations /
+    // whether a task is taking long. Placed in the volatile suffix so the
+    // stable prefix (tools/memories/…) still caches.
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     parts.push(format!(
-        "\n# Runtime Context (volatile)\n- OS: {os} ({arch})\n- CWD: {cwd}\n- Shell: {shell}\n- TZ: {tz}"
+        "\n# Runtime Context (volatile)\n- Now: {now}\n- OS: {os} ({arch})\n- CWD: {cwd}\n- Shell: {shell}\n- TZ: {tz}"
     ));
     let toolchain = detect_toolchain();
     if !toolchain.is_empty() {

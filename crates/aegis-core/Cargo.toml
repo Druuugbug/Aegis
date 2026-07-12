@@ -10,17 +10,17 @@ repository.workspace = true
 name = "aegis_core"
 
 [dependencies]
-aegis-security = { path = "../aegis-security", version = "1.0.2" }
-aegis-feedback = { path = "../aegis-feedback", version = "1.0.2" }
-aegis-goals = { path = "../aegis-goals", version = "1.0.2" }
-aegis-mcp = { path = "../aegis-mcp", version = "1.0.2" }
-aegis-tools = { path = "../aegis-tools", version = "1.0.2" }
-aegis-types = { path = "../aegis-types", version = "1.0.2" }
-aegis-provider = { path = "../aegis-provider", version = "1.0.2" }
-aegis-record = { path = "../aegis-record", version = "1.0.2" }
-aegis-memory = { path = "../aegis-memory", version = "1.0.2", package = "aegis-agent-memory" }
-aegis-perception = { path = "../aegis-perception", version = "1.0.2" }
-aegis-learning = { path = "../aegis-learning", version = "1.0.2" }
+aegis-security = { path = "../aegis-security", version = "1.0.3" }
+aegis-feedback = { path = "../aegis-feedback", version = "1.0.3" }
+aegis-goals = { path = "../aegis-goals", version = "1.0.3" }
+aegis-mcp = { path = "../aegis-mcp", version = "1.0.3" }
+aegis-tools = { path = "../aegis-tools", version = "1.0.3" }
+aegis-types = { path = "../aegis-types", version = "1.0.3" }
+aegis-provider = { path = "../aegis-provider", version = "1.0.3" }
+aegis-record = { path = "../aegis-record", version = "1.0.3" }
+aegis-memory = { path = "../aegis-memory", version = "1.0.3", package = "aegis-agent-memory" }
+aegis-perception = { path = "../aegis-perception", version = "1.0.3" }
+aegis-learning = { path = "../aegis-learning", version = "1.0.3" }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 async-trait = { workspace = true }
@@ -53,7 +53,7 @@ simploxide-client = { version = "=0.13.1", default-features = false, features = 
 
 [dev-dependencies]
 tempfile = "3"
-aegis-a2a = { path = "../aegis-a2a", version = "1.0.2" }
+aegis-a2a = { path = "../aegis-a2a", version = "1.0.3" }
 thiserror = { workspace = true }
 criterion = { workspace = true }
 

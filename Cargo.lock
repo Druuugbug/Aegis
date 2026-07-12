@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "aegis-a2a"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "aegis-security",
  "anyhow",
@@ -24,7 +24,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-agent"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "aegis-a2a",
  "aegis-agent-core",
@@ -62,6 +62,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.23.1",
  "tokio-util",
+ "toml",
  "tower",
  "tower-http",
  "tracing",
@@ -71,7 +72,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-agent-core"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "aegis-a2a",
  "aegis-agent-memory",
@@ -114,7 +115,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-agent-memory"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "aegis-provider",
  "aegis-types",
@@ -138,7 +139,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-browser"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "base64",
@@ -153,8 +154,9 @@ dependencies = [
 
 [[package]]
 name = "aegis-feedback"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
+ "aegis-types",
  "anyhow",
  "base64",
  "chrono",
@@ -168,8 +170,9 @@ dependencies = [
 
 [[package]]
 name = "aegis-goals"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
+ "aegis-types",
  "anyhow",
  "chrono",
  "dirs-next",
@@ -182,7 +185,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-import"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "aegis-types",
  "anyhow",
@@ -194,8 +197,9 @@ dependencies = [
 
 [[package]]
 name = "aegis-learning"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
+ "aegis-types",
  "anyhow",
  "chrono",
  "dirs-next",
@@ -212,10 +216,11 @@ dependencies = [
 
 [[package]]
 name = "aegis-mcp"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "aegis-agent-memory",
  "aegis-tools",
+ "aegis-types",
  "anyhow",
  "async-trait",
  "dirs-next",
@@ -230,7 +235,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-perception"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -244,7 +249,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-provider"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "aegis-types",
  "anyhow",
@@ -264,7 +269,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-record"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -279,7 +284,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-sandbox"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "landlock",
@@ -296,9 +301,10 @@ dependencies = [
 
 [[package]]
 name = "aegis-security"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "aegis-sandbox",
+ "aegis-types",
  "anyhow",
  "chrono",
  "dirs-next",
@@ -311,7 +317,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-selfdev"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -323,7 +329,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-tools"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "aegis-a2a",
  "aegis-agent-memory",
@@ -331,6 +337,7 @@ dependencies = [
  "aegis-record",
  "aegis-sandbox",
  "aegis-security",
+ "aegis-types",
  "anyhow",
  "async-trait",
  "base64",
@@ -352,8 +359,9 @@ dependencies = [
 
 [[package]]
 name = "aegis-types"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
+ "dirs-next",
  "serde",
  "serde_json",
 ]
@@ -1509,7 +1517,7 @@ dependencies = [
 
 [[package]]
 name = "iblt"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "bytes",
@@ -1525,7 +1533,7 @@ dependencies = [
 
 [[package]]
 name = "iblt-store"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "bytes",

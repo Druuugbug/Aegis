@@ -456,10 +456,7 @@ fn host_has(tool: &str) -> bool {
 impl StrategyManager {
     /// Creates a new `instance`.
     pub fn new() -> Self {
-        let dir = dirs_next::home_dir()
-            .unwrap_or_default()
-            .join(".aegis")
-            .join("strategies");
+        let dir = aegis_types::paths::config_dir().join("strategies");
         let _ = std::fs::create_dir_all(&dir);
         Self {
             dir,

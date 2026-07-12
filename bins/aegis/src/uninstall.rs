@@ -211,24 +211,14 @@ pub fn run(
     }
 
     // What to remove: every entry under config_dir not in the kept set (this
-    // also sweeps unknown/stray files), plus known Root B (~/.aegis) artifacts
-    // that live in a *separate* root and aren't kept.
+    // also sweeps unknown/stray files). Post-unification all artifacts live
+    // under config_dir, so this single pass is complete. (Pre-unification
+    // machines with a leftover `~/.aegis` are flagged by `aegis doctor`.)
     let mut to_remove: Vec<PathBuf> = Vec::new();
     for entry in std::fs::read_dir(&cfg_dir)?.flatten() {
         let p = entry.path();
         if !kept_paths.contains(&p) {
             to_remove.push(p);
-        }
-    }
-    let legacy_base = aegis_core::artifacts::Root::LegacyHome.base();
-    if legacy_base != cfg_dir {
-        for a in aegis_core::artifacts::all() {
-            if a.root == aegis_core::artifacts::Root::LegacyHome
-                && a.exists()
-                && !kept_paths.contains(&a.path)
-            {
-                to_remove.push(a.path);
-            }
         }
     }
 

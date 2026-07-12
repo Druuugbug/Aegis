@@ -18,6 +18,7 @@ mod usage;
 mod watcher;
 mod logfile;
 mod backup;
+mod connect;
 mod peer;
 mod tui;
 mod uninstall;
@@ -160,6 +161,7 @@ async fn main() -> Result<()> {
             }
         }
         Some(Commands::Trash { action }) => trash::run_trash(action),
+        Some(Commands::Connect) => connect::run(),
         Some(Commands::Setup) => {
             if let Some(msg) = chat::run_setup_wizard() {
                 println!("{msg}");

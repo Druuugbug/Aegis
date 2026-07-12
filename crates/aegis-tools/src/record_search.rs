@@ -12,10 +12,7 @@ pub struct RecordSearchTool {
 impl RecordSearchTool {
     /// Create a new `RecordSearchTool` using the default database path (~/.aegis/records.db).
     pub fn new() -> Self {
-        let db_path = dirs_next::home_dir()
-            .unwrap_or_default()
-            .join(".aegis")
-            .join("records.db");
+        let db_path = aegis_types::paths::config_dir().join("records.db");
         Self { db_path }
     }
 }

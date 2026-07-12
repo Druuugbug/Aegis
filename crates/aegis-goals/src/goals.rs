@@ -61,10 +61,7 @@ pub struct GoalManager {
 impl GoalManager {
     /// Creates a new `instance`.
     pub fn new() -> Self {
-        let dir = dirs_next::home_dir()
-            .unwrap_or_default()
-            .join(".aegis")
-            .join("goals");
+        let dir = aegis_types::paths::config_dir().join("goals");
         let _ = std::fs::create_dir_all(&dir);
         Self { dir }
     }
