@@ -120,7 +120,6 @@ fn connect_simplex() -> Result<()> {
         "simplex",
         &[("enabled", "true"), ("host", "127.0.0.1"), ("port", &port), ("bot_name", "AegisBot")],
     )?;
-    // port is numeric → fix the quoting the generic writer applied.
     started_hint("simplex", "出站连接本地 CLI（端口须保持 127.0.0.1，不可暴露公网）");
     Ok(())
 }
@@ -150,8 +149,11 @@ fn started_hint(channel: &str, note: &str) {
 }
 
 /// Merge `[gateway.<channel>]` keys into the existing config.toml, preserving
-/// everything else. Numeric-looking values (`true`, digits) are written
-/// unquoted; the rest as TOML strings.
+/// everything else. Across every channel the only non-string fields are
+/// `enabled` (bool) and `port` (int); everything else — including numeric-looking
+/// ids like `channel_id` — is a TOML string. We type each key accordingly rather
+/// than guessing from the value's shape (which used to turn a numeric Discord
+/// `channel_id` into an integer and break `Config::load`).
 fn set_gateway_keys(channel: &str, kv: &[(&str, &str)]) -> Result<()> {
     let path = aegis_core::config::config_path();
     if let Some(parent) = path.parent() {
@@ -179,17 +181,24 @@ fn set_gateway_keys(channel: &str, kv: &[(&str, &str)]) -> Result<()> {
     let ch_tbl = ch.as_table_mut().ok_or_else(|| anyhow!("[gateway.{channel}] 不是 table"))?;
 
     for (k, v) in kv {
-        let value = if *v == "true" || *v == "false" {
-            toml::Value::Boolean(*v == "true")
-        } else if let Ok(n) = v.parse::<i64>() {
-            toml::Value::Integer(n)
-        } else {
-            toml::Value::String(v.to_string())
+        let value = match *k {
+            "enabled" => toml::Value::Boolean(*v == "true"),
+            "port" => v
+                .parse::<i64>()
+                .map(toml::Value::Integer)
+                .unwrap_or_else(|_| toml::Value::String(v.to_string())),
+            // Everything else (bot_token, channel_id, app_token, app_id,
+            // app_secret, host, mode, bot_name, token, …) is a string, even when
+            // it looks numeric.
+            _ => toml::Value::String(v.to_string()),
         };
         ch_tbl.insert(k.to_string(), value);
     }
 
     let out = toml::to_string_pretty(&doc).map_err(|e| anyhow!("序列化 config.toml 失败: {e}"))?;
+    // Write guard: never persist a config the gateway couldn't load back.
+    aegis_core::config::Config::validate_toml_str(&out)
+        .map_err(|e| anyhow!("写入会生成无法解析的 config.toml，已中止（未改动）：{e}"))?;
     std::fs::write(&path, out).map_err(|e| anyhow!("写入 config.toml 失败: {e}"))?;
     Ok(())
 }

@@ -4,7 +4,7 @@ A cognitive agent runtime that learns from experience. Written in Rust.
 
 ## Install
 
-One-liner (Linux / macOS):
+One-liner (Linux):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Druuugbug/Aegis/main/install.sh | sh

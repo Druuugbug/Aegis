@@ -2127,13 +2127,63 @@ async fn wait_socket(path: &Path, tries: u32) -> bool {
     false
 }
 
+/// Path of the log capturing a background-spawned gateway's stderr, so a daemon
+/// that dies during startup (e.g. an invalid config.toml) leaves a diagnosable
+/// trail instead of vanishing into /dev/null.
+fn gateway_startup_log_path() -> PathBuf {
+    aegis_core::config::config_dir()
+        .join("logs")
+        .join("gateway-startup.log")
+}
+
+/// Last `max_lines` non-empty lines of the gateway startup log, if any.
+fn startup_log_tail(max_lines: usize) -> Option<String> {
+    let content = std::fs::read_to_string(gateway_startup_log_path()).ok()?;
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let lines: Vec<&str> = trimmed.lines().collect();
+    let start = lines.len().saturating_sub(max_lines);
+    Some(lines[start..].join("\n"))
+}
+
+/// Build a "gateway did not come up" error message, appending the tail of the
+/// startup log when present so the root cause is visible without re-running the
+/// daemon in the foreground.
+fn startup_failure_msg(headline: &str) -> String {
+    match startup_log_tail(12) {
+        Some(tail) => {
+            let indented = tail
+                .lines()
+                .map(|l| format!("    {l}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!(
+                "{headline}\n  ↳ recent gateway startup log ({}):\n{indented}",
+                gateway_startup_log_path().display()
+            )
+        }
+        None => headline.to_string(),
+    }
+}
+
 fn setsid_spawn() -> Result<()> {
     let exe = std::env::current_exe()?;
     let mut cmd = std::process::Command::new(exe);
+    // Send the child's stderr to a log file (truncated each spawn) rather than
+    // /dev/null, so startup failures are diagnosable.
+    let log_path = gateway_startup_log_path();
+    if let Some(dir) = log_path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let stderr_cfg = std::fs::File::create(&log_path)
+        .map(Stdio::from)
+        .unwrap_or_else(|_| Stdio::null());
     cmd.arg("gateway")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(stderr_cfg);
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -2178,7 +2228,7 @@ async fn ensure_daemon(path: &Path) -> Result<()> {
                         eprintln!("{}", "🔄 gateway upgraded to the new build.".dimmed());
                         return Ok(());
                     }
-                    anyhow::bail!("upgraded gateway did not come up in time");
+                    anyhow::bail!("{}", startup_failure_msg("upgraded gateway did not come up in time"));
                 } else {
                     eprintln!(
                         "{}",
@@ -2215,7 +2265,7 @@ async fn ensure_daemon(path: &Path) -> Result<()> {
     if wait_socket(path, 50).await {
         return Ok(());
     }
-    anyhow::bail!("gateway did not come up in time")
+    anyhow::bail!("{}", startup_failure_msg("gateway did not come up in time"))
 }
 
 /// A bare `/` opens an arrow-key command menu; returns the chosen command line.

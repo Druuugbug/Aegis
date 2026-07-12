@@ -161,7 +161,14 @@ pub async fn build_tool_registry(
     reg.register(Arc::new(aegis_core::TaskTool));
     // Remote server access over SSH (run/upload/check). High-risk; approval-gated.
     reg.register(Arc::new(RemoteTool));
-    reg.register(Arc::new(aegis_core::aegis_tools::SelfModTool));
+    // Self-modification tool. Inject a config write guard so a self-edit that
+    // would produce an unparseable/invalid config.toml is refused rather than
+    // bricking the next gateway start.
+    reg.register(Arc::new(
+        aegis_core::aegis_tools::SelfModTool::with_config_validator(std::sync::Arc::new(
+            |s: &str| aegis_core::config::Config::validate_toml_str(s).map_err(|e| e.to_string()),
+        )),
+    ));
     // Session management: list/search/read past sessions via natural language.
     reg.register(Arc::new(SessionTool));
     // System control: style, steering, undo, new_session via natural language.

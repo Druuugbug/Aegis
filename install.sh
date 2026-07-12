@@ -1,5 +1,5 @@
 #!/bin/sh
-# Aegis installer: downloads the latest release binary for your platform.
+# Aegis installer: downloads the latest release binary (Linux only).
 #   curl -fsSL https://raw.githubusercontent.com/Druuugbug/Aegis/main/install.sh | sh
 set -eu
 
@@ -9,25 +9,16 @@ BIN="aegis"
 os=$(uname -s)
 arch=$(uname -m)
 
-case "$os" in
-  Linux)
-    case "$arch" in
-      x86_64)          target="x86_64-unknown-linux-musl" ;;
-      aarch64 | arm64) target="aarch64-unknown-linux-musl" ;;
-      *) echo "error: unsupported architecture: $arch" >&2; exit 1 ;;
-    esac
-    ;;
-  Darwin)
-    case "$arch" in
-      x86_64)          target="x86_64-apple-darwin" ;;
-      arm64 | aarch64) target="aarch64-apple-darwin" ;;
-      *) echo "error: unsupported architecture: $arch" >&2; exit 1 ;;
-    esac
-    ;;
-  *)
-    echo "error: unsupported OS: $os (Linux and macOS only)" >&2
-    exit 1
-    ;;
+if [ "$os" != "Linux" ]; then
+  echo "error: aegis targets Linux only (detected: $os)" >&2
+  echo "hint: on other systems, build from source: cargo install aegis-agent" >&2
+  exit 1
+fi
+
+case "$arch" in
+  x86_64)          asset="linux-x86_64" ;;
+  aarch64 | arm64) asset="linux-aarch64" ;;
+  *) echo "error: unsupported architecture: $arch" >&2; exit 1 ;;
 esac
 
 if [ "$(id -u)" = "0" ]; then
@@ -37,11 +28,11 @@ else
 fi
 mkdir -p "$install_dir"
 
-url="https://github.com/${REPO}/releases/latest/download/${BIN}-${target}.tar.gz"
+url="https://github.com/${REPO}/releases/latest/download/${BIN}-${asset}.tar.gz"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-echo "Downloading ${BIN} (${target})..."
+echo "Downloading ${BIN} (${asset})..."
 curl -fSL --proto '=https' "$url" -o "$tmp/${BIN}.tar.gz"
 tar xzf "$tmp/${BIN}.tar.gz" -C "$tmp"
 install -m 755 "$tmp/${BIN}" "$install_dir/${BIN}"

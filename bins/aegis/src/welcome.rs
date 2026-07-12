@@ -47,14 +47,29 @@ pub fn print_welcome(version: &str, _model: &str, session_id: &str) {
     );
     // Running inside tmux? The REPL uses raw mode, so the mouse wheel is sent
     // as arrow keys (→ input history) and can't scroll scrollback. Tell the
-    // user how to scroll long output via tmux itself.
-    if std::env::var_os("TMUX").is_some() {
+    // user how to scroll long output via tmux itself — but only when tmux's
+    // `mouse` option is *not* already on (otherwise the hint is just noise).
+    if std::env::var_os("TMUX").is_some() && !tmux_mouse_on() {
         eprintln!(
             "  {}",
             "tmux: 滚轮看历史请先 `tmux set -g mouse on`，或按 prefix+[ 进入复制模式滚动".dimmed()
         );
     }
     eprintln!();
+}
+
+/// Is tmux's `mouse` option already enabled? Best-effort: queries the running
+/// tmux server (`tmux show -gv mouse` → `on`/`off`). On any error (tmux not on
+/// PATH, no server, unexpected output) we assume it is *off* so the scroll hint
+/// still shows — failing toward being helpful rather than silent.
+fn tmux_mouse_on() -> bool {
+    std::process::Command::new("tmux")
+        .args(["show", "-gv", "mouse"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "on")
+        .unwrap_or(false)
 }
 
 /// Legacy full-screen ASCII welcome banner. **Preserved for later use** —

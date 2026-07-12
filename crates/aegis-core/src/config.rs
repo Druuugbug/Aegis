@@ -1483,8 +1483,19 @@ impl Config {
         let mut cfg = if path.exists() {
             let text = std::fs::read_to_string(path)
                 .with_context(|| format!("reading config from {}", path.display()))?;
-            toml::from_str(&text)
-                .with_context(|| format!("parsing config from {}", path.display()))?
+            toml::from_str(&text).with_context(|| {
+                format!(
+                    "parsing config from {p}\n\
+                     hint: the config is not valid TOML or has a field of the wrong type/value. \
+                     Run `aegis gateway` in the foreground to see the exact line, fix it, or \
+                     restore a known-good copy from {backups}.",
+                    p = path.display(),
+                    backups = path
+                        .parent()
+                        .map(|d| d.join("backups").display().to_string())
+                        .unwrap_or_else(|| "the config backups dir".into()),
+                )
+            })?
         } else {
             Self::default()
         };
@@ -1638,7 +1649,34 @@ impl Config {
                 self.gateway.simplex.host
             );
         }
+
+        // Enum-valued string fields: reject unknown values early with a clear
+        // message listing the allowed set. This catches configs that parse as
+        // the right *type* but hold a nonsense *value* (e.g. a self-modify tool
+        // that wrote `auto_apply = "false"`).
+        anyhow::ensure!(
+            matches!(self.upgrade.auto_apply.as_str(), "ask" | "idle" | "never"),
+            "upgrade.auto_apply must be one of \"ask\" | \"idle\" | \"never\"; got {:?}",
+            self.upgrade.auto_apply
+        );
+        anyhow::ensure!(
+            matches!(self.upgrade.channel.as_str(), "stable" | "nightly" | "canary"),
+            "upgrade.channel must be one of \"stable\" | \"nightly\" | \"canary\"; got {:?}",
+            self.upgrade.channel
+        );
+
         Ok(())
+    }
+
+    /// Parse + validate a config from a TOML string without touching the
+    /// environment or filesystem. Used as a *write guard*: before any code
+    /// path rewrites `config.toml`, run the candidate content through this so
+    /// we never persist a config the daemon can't load (a self-modify tool
+    /// writing a wrong-typed or nonsense value would otherwise brick startup).
+    pub fn validate_toml_str(text: &str) -> Result<()> {
+        let cfg: Config =
+            toml::from_str(text).with_context(|| "config would not parse as valid TOML/Config")?;
+        cfg.validate()
     }
 
     /// Resolve API key: config → env vars → error.
@@ -1708,6 +1746,30 @@ pub fn platform_root() -> Option<PathBuf> {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn test_validate_toml_str_rejects_wrong_type_and_enum() {
+        // The exact incident: a String field written as a bool. Must be rejected.
+        assert!(Config::validate_toml_str("[upgrade]\nauto_apply = false\n").is_err());
+        // Right type but nonsense enum value — also rejected.
+        assert!(Config::validate_toml_str("[upgrade]\nauto_apply = \"off\"\n").is_err());
+        assert!(Config::validate_toml_str("[upgrade]\nchannel = \"weekly\"\n").is_err());
+        // Valid values pass.
+        assert!(Config::validate_toml_str("[upgrade]\nauto_apply = \"never\"\n").is_ok());
+        assert!(Config::validate_toml_str("[upgrade]\nchannel = \"nightly\"\n").is_ok());
+        // Empty config = all defaults, must be valid.
+        assert!(Config::validate_toml_str("").is_ok());
+    }
+
+    #[test]
+    fn test_validate_toml_str_channel_id_must_be_string() {
+        // A numeric Discord channel_id written as an integer breaks String parse.
+        assert!(Config::validate_toml_str("[gateway.discord]\nchannel_id = 123456789\n").is_err());
+        // As a string it loads fine.
+        assert!(
+            Config::validate_toml_str("[gateway.discord]\nchannel_id = \"123456789\"\n").is_ok()
+        );
+    }
 
     #[test]
     fn test_default_config() {

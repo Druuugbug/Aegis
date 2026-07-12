@@ -13,8 +13,35 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::Arc;
 
-pub struct SelfModTool;
+/// Validates candidate `config.toml` content before it is persisted. Returns
+/// `Err(reason)` if the content would not load as a valid config. Injected from
+/// the binary layer (which can see `aegis-core::Config`) — `aegis-tools` cannot
+/// depend on `aegis-core` (that would be a dependency cycle).
+pub type ConfigValidator = Arc<dyn Fn(&str) -> std::result::Result<(), String> + Send + Sync>;
+
+#[derive(Default)]
+pub struct SelfModTool {
+    /// Optional write guard for `config.toml`. When set, `action_config` refuses
+    /// to persist content that fails validation (leaving the file untouched).
+    config_validator: Option<ConfigValidator>,
+}
+
+impl SelfModTool {
+    /// Construct without a config write guard (validation is skipped).
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Construct with a config write guard. Prefer this at the binary layer so
+    /// self-modifications that would corrupt `config.toml` are rejected.
+    pub fn with_config_validator(validator: ConfigValidator) -> Self {
+        Self {
+            config_validator: Some(validator),
+        }
+    }
+}
 
 fn is_aegis_workspace(path: &Path) -> bool {
     path.join("Cargo.toml").exists() && path.join("crates").is_dir()
@@ -63,6 +90,28 @@ fn find_source_root() -> Option<PathBuf> {
         }
     }
     None
+}
+
+fn coerce_config_value(existing: Option<&toml::Value>, value: &str) -> toml::Value {
+    match existing {
+        Some(toml::Value::String(_)) => toml::Value::String(value.to_string()),
+        Some(toml::Value::Boolean(_)) if value == "true" || value == "false" => {
+            toml::Value::Boolean(value == "true")
+        }
+        Some(toml::Value::Integer(_)) => match value.parse::<i64>() {
+            Ok(n) => toml::Value::Integer(n),
+            Err(_) => toml::Value::String(value.to_string()),
+        },
+        _ => {
+            if value == "true" || value == "false" {
+                toml::Value::Boolean(value == "true")
+            } else if let Ok(n) = value.parse::<i64>() {
+                toml::Value::Integer(n)
+            } else {
+                toml::Value::String(value.to_string())
+            }
+        }
+    }
 }
 
 /// Create a backup of a config file before modification.
@@ -296,15 +345,18 @@ impl SelfModTool {
         let mut table: toml::Table = content.parse().unwrap_or_default();
 
         let parts: Vec<&str> = key.split('.').collect();
-        let toml_value: toml::Value = if value == "true" {
-            toml::Value::Boolean(true)
-        } else if value == "false" {
-            toml::Value::Boolean(false)
-        } else if let Ok(n) = value.parse::<i64>() {
-            toml::Value::Integer(n)
-        } else {
-            toml::Value::String(value.to_string())
+
+        // Type-aware coercion. If the key already exists with a concrete type,
+        // preserve that type (so a String-valued field like `upgrade.auto_apply`
+        // is never silently rewritten as a bool/int just because its new value
+        // *looks* boolean/numeric). Only fall back to value-shape inference for
+        // brand-new keys.
+        let existing = match parts.as_slice() {
+            [section, field] => table.get(*section).and_then(|s| s.get(*field)),
+            [field] => table.get(*field),
+            _ => None,
         };
+        let toml_value = coerce_config_value(existing, value);
 
         match parts.as_slice() {
             [section, field] => {
@@ -322,6 +374,18 @@ impl SelfModTool {
         }
 
         let new_content = toml::to_string_pretty(&table)?;
+
+        // Write guard: never persist a config the daemon couldn't load back.
+        // Catches wrong types *and* nonsense enum values (e.g. auto_apply="off").
+        if let Some(validate) = &self.config_validator {
+            if let Err(e) = validate(&new_content) {
+                return Ok(format!(
+                    "Refused to write: setting `{key} = {value}` would produce a config \
+                     that can't be loaded, so config.toml was left unchanged.\nReason: {e}"
+                ));
+            }
+        }
+
         std::fs::write(&config_path, &new_content)?;
         Ok(format!("Set {key} = {value} in config.toml. Backup saved."))
     }
@@ -663,6 +727,39 @@ fn walkdir_simple(dir: &Path) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_coerce_config_value_preserves_existing_string_type() {
+        // Existing String field: even a boolean/numeric-looking value stays a
+        // string (this is the `upgrade.auto_apply = "false"` corruption guard).
+        let existing = toml::Value::String("ask".into());
+        assert_eq!(
+            coerce_config_value(Some(&existing), "false"),
+            toml::Value::String("false".into())
+        );
+        assert_eq!(
+            coerce_config_value(Some(&existing), "123"),
+            toml::Value::String("123".into())
+        );
+    }
+
+    #[test]
+    fn test_coerce_config_value_new_key_infers_shape() {
+        assert_eq!(coerce_config_value(None, "true"), toml::Value::Boolean(true));
+        assert_eq!(coerce_config_value(None, "42"), toml::Value::Integer(42));
+        assert_eq!(
+            coerce_config_value(None, "idle"),
+            toml::Value::String("idle".into())
+        );
+    }
+
+    #[test]
+    fn test_coerce_config_value_preserves_existing_bool_and_int() {
+        let b = toml::Value::Boolean(false);
+        assert_eq!(coerce_config_value(Some(&b), "true"), toml::Value::Boolean(true));
+        let i = toml::Value::Integer(1);
+        assert_eq!(coerce_config_value(Some(&i), "7"), toml::Value::Integer(7));
+    }
 
     #[test]
     fn test_is_aegis_workspace() {

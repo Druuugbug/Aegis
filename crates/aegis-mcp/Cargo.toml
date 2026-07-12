@@ -7,9 +7,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-aegis-types = { path = "../aegis-types", version = "1.0.3" }
-aegis-tools = { path = "../aegis-tools", version = "1.0.3" }
-aegis-memory = { path = "../aegis-memory", version = "1.0.3", package = "aegis-agent-memory" }
+aegis-types = { path = "../aegis-types", version = "1.0.4" }
+aegis-tools = { path = "../aegis-tools", version = "1.0.4" }
+aegis-memory = { path = "../aegis-memory", version = "1.0.4", package = "aegis-agent-memory" }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }

@@ -9,22 +9,16 @@ permissions:
 
 jobs:
   build:
-    name: build (${{ matrix.target }})
-    runs-on: ${{ matrix.os }}
+    name: build (${{ matrix.asset }})
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-musl
-            os: ubuntu-latest
-            cross: true
+            asset: linux-x86_64
           - target: aarch64-unknown-linux-musl
-            os: ubuntu-latest
-            cross: true
-          - target: x86_64-apple-darwin
-            os: macos-latest
-          - target: aarch64-apple-darwin
-            os: macos-latest
+            asset: linux-aarch64
     steps:
       - uses: actions/checkout@v4
 
@@ -33,31 +27,25 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install cross
-        if: matrix.cross
         uses: taiki-e/install-action@v2
         with:
           tool: cross
 
       - name: Build
-        run: |
-          if [ "${{ matrix.cross }}" = "true" ]; then
-            cross build --release --locked --bin aegis --target ${{ matrix.target }}
-          else
-            cargo build --release --locked --bin aegis --target ${{ matrix.target }}
-          fi
+        run: cross build --release --locked --bin aegis --target ${{ matrix.target }}
 
       - name: Package
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf aegis-${{ matrix.target }}.tar.gz aegis
-          shasum -a 256 aegis-${{ matrix.target }}.tar.gz > aegis-${{ matrix.target }}.tar.gz.sha256
+          tar czf aegis-${{ matrix.asset }}.tar.gz aegis
+          sha256sum aegis-${{ matrix.asset }}.tar.gz > aegis-${{ matrix.asset }}.tar.gz.sha256
 
       - uses: actions/upload-artifact@v4
         with:
-          name: aegis-${{ matrix.target }}
+          name: aegis-${{ matrix.asset }}
           path: |
-            target/${{ matrix.target }}/release/aegis-${{ matrix.target }}.tar.gz
-            target/${{ matrix.target }}/release/aegis-${{ matrix.target }}.tar.gz.sha256
+            target/${{ matrix.target }}/release/aegis-${{ matrix.asset }}.tar.gz
+            target/${{ matrix.target }}/release/aegis-${{ matrix.asset }}.tar.gz.sha256
 
   release:
     needs: build
