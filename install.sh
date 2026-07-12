@@ -47,7 +47,7 @@ tar xzf "$tmp/${BIN}.tar.gz" -C "$tmp"
 install -m 755 "$tmp/${BIN}" "$install_dir/${BIN}"
 
 echo "Installed to ${install_dir}/${BIN}"
-"$install_dir/${BIN}" --version || true
+"$install_dir/${BIN}" --version 2>/dev/null || echo "Run '${BIN} --help' to get started."
 
 case ":$PATH:" in
   *":$install_dir:"*) ;;
