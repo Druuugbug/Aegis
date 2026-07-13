@@ -106,6 +106,31 @@ pub async fn run(pool_size_arg: Option<usize>) -> Result<()> {
     Ok(())
 }
 
+/// Resolve the model for a `task/run` request: use `params["model"]` when it is
+/// a non-empty string, otherwise fall back to the configured default. This
+/// enables heterogeneous dispatch (a different model per spawned sub-agent).
+fn pick_model(params: &serde_json::Value, default: &str) -> String {
+    params["model"]
+        .as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| default.to_string())
+}
+
+/// Append a concise-summary directive to a sub-agent's task prompt so its final
+/// reply stays small. Returning full transcripts/logs from a dozen fanned-out
+/// sub-agents would blow up the parent agent's context — the parent only needs
+/// the distilled result. The worker keeps its own session on disk for detail.
+fn with_summary_directive(prompt: &str) -> String {
+    format!(
+        "{prompt}\n\n---\nIMPORTANT — when you are done, reply with ONLY a concise summary of your \
+result (aim for under ~1500 characters): the key findings, the most important `file:line` \
+references, and your conclusion/answer. Do NOT paste full file contents, raw logs, or your \
+step-by-step process — the calling agent only needs the distilled result."
+    )
+}
+
 async fn handle_task_run(params: &serde_json::Value, stdout: &mut io::Stdout) -> Result<String> {
     let prompt = params["prompt"].as_str().unwrap_or("");
     let max_turns = params["max_turns"].as_u64().unwrap_or(20) as u32;
@@ -114,6 +139,13 @@ async fn handle_task_run(params: &serde_json::Value, stdout: &mut io::Stdout) ->
     let mut config = Config::load(&config_path)?;
     config.agent.max_iterations = max_turns;
     config.security.yolo = false; // workers are restricted
+
+    // Per-task model override (heterogeneous dispatch): the orchestrator may
+    // assign a different model to each sub-agent (e.g. a strong model for the
+    // most suspicious lead, a cheap/fast model for bulk checks). api_key /
+    // base_url still resolve from config, so this swaps the model name within
+    // the same provider ecosystem. Empty/absent → keep the config default.
+    config.model.default = pick_model(params, &config.model.default);
 
     let api_key = config.resolve_api_key()?;
     let base_url = config.resolve_base_url();
@@ -146,7 +178,7 @@ async fn handle_task_run(params: &serde_json::Value, stdout: &mut io::Stdout) ->
         }),
     )?;
 
-    let result = agent.chat(prompt).await?;
+    let result = agent.chat(&with_summary_directive(prompt)).await?;
 
     send_notification(
         stdout,
@@ -364,5 +396,42 @@ mod pool {
         });
 
         WorkerHandle { shutdown_tx }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pick_model;
+    use serde_json::json;
+
+    #[test]
+    fn pick_model_override() {
+        let params = json!({ "prompt": "x", "model": "gpt-4o" });
+        assert_eq!(pick_model(&params, "gpt-4o-mini"), "gpt-4o");
+    }
+
+    #[test]
+    fn pick_model_falls_back_when_absent() {
+        let params = json!({ "prompt": "x" });
+        assert_eq!(pick_model(&params, "gpt-4o-mini"), "gpt-4o-mini");
+    }
+
+    #[test]
+    fn pick_model_falls_back_when_empty_or_blank() {
+        assert_eq!(pick_model(&json!({ "model": "" }), "def"), "def");
+        assert_eq!(pick_model(&json!({ "model": "   " }), "def"), "def");
+    }
+
+    #[test]
+    fn pick_model_trims_whitespace() {
+        assert_eq!(pick_model(&json!({ "model": "  o1  " }), "def"), "o1");
+    }
+
+    #[test]
+    fn summary_directive_keeps_prompt_and_adds_instruction() {
+        let out = super::with_summary_directive("investigate the crash");
+        assert!(out.contains("investigate the crash"));
+        assert!(out.to_lowercase().contains("concise summary"));
+        assert!(out.contains("file:line"));
     }
 }

@@ -3,6 +3,10 @@ use aegis_core::aegis_tools::{
     SearchFilesTool, SessionSearchTool, SessionTool, BrowserTool, MaigretTool, SpawnTaskTool,
     TerminalTool, TodoTool, ToolRegistry, WebExtractTool, WebSearchTool, WriteFileTool,
     BackgroundTool, RemoteTool, CratesTool, SkillTool, WidgetTool,
+    ReadDocumentTool, DocExtractProTool, WebFetchProTool,
+    HttpRequestTool, CalcTool, ListFilesTool, SystemStatusTool,
+    ProcessListTool, HttpProbeTool, DnsLookupTool, ServiceTool,
+    DiskUsageTool, ListeningPortsTool, GitTool,
 };
 use aegis_core::config::Config;
 use aegis_mcp::McpClient;
@@ -171,6 +175,33 @@ pub async fn build_tool_registry(
     ));
     // Session management: list/search/read past sessions via natural language.
     reg.register(Arc::new(SessionTool));
+    // LSP diagnostics on demand (only when a language server is configured).
+    if config.lsp.enabled && !config.lsp.servers.is_empty() {
+        let servers = config
+            .lsp
+            .servers
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.clone(),
+                    aegis_lsp::ServerSpec {
+                        command: v.command.clone(),
+                        args: v.args.clone(),
+                        extensions: v.extensions.clone(),
+                    },
+                )
+            })
+            .collect();
+        let mgr = Arc::new(aegis_lsp::LspManager::new(aegis_lsp::LspSettings {
+            servers,
+            timeout_ms: config.lsp.timeout_ms,
+            max_diagnostics: config.lsp.max_diagnostics,
+        }));
+        reg.register(Arc::new(aegis_tools::DiagnosticsTool::new(mgr.clone())));
+        // Code navigation (definition/references/hover/symbols) over the same
+        // language servers.
+        reg.register(Arc::new(aegis_tools::CodeNavTool::new(mgr)));
+    }
     // System control: style, steering, undo, new_session via natural language.
     reg.register(Arc::new(ControlTool));
 
@@ -203,6 +234,23 @@ pub async fn build_tool_registry(
     // set ([tools].exa_api_key / EXA_API_KEY, etc.). SSRF-protected.
     reg.register(Arc::new(WebSearchTool::new()));
     reg.register(Arc::new(WebExtractTool::new()));
+    // Local document reading (PDF/Word/Excel/PowerPoint), pure-Rust, no OCR.
+    reg.register(Arc::new(ReadDocumentTool::new()));
+    // First-tier utility/server tools (pure-Rust, light, default-on):
+    // generic HTTP client, math eval, directory listing, host status.
+    reg.register(Arc::new(HttpRequestTool::new()));
+    reg.register(Arc::new(CalcTool::new()));
+    reg.register(Arc::new(ListFilesTool::new()));
+    reg.register(Arc::new(SystemStatusTool::new()));
+    // Server diagnostics (read-only, or approval-gated mutations for `service`).
+    reg.register(Arc::new(ProcessListTool::new()));
+    reg.register(Arc::new(HttpProbeTool::new()));
+    reg.register(Arc::new(DnsLookupTool::new()));
+    reg.register(Arc::new(ServiceTool::new()));
+    reg.register(Arc::new(DiskUsageTool::new()));
+    reg.register(Arc::new(ListeningPortsTool::new()));
+    // Read-only git inspection (status/log/diff/show/branch/blame).
+    reg.register(Arc::new(GitTool::new()));
     // Rust ecosystem (read-only): crate metadata/versions, search, RustSec
     // advisories (via OSV). Never modifies Cargo.toml. SSRF-protected.
     reg.register(Arc::new(CratesTool::new()));
@@ -227,6 +275,22 @@ pub async fn build_tool_registry(
             maigret_path: config.maigret.path.clone(),
             timeout_secs: config.maigret.timeout_secs,
             top_sites: config.maigret.top_sites,
+        }));
+    }
+    // Opt-in heavy PDF extraction (external opendataloader-pdf).
+    if config.doc_extract.enabled {
+        reg.register(Arc::new(DocExtractProTool {
+            binary: config.doc_extract.path.clone(),
+            mode: config.doc_extract.mode.clone(),
+            timeout_secs: config.doc_extract.timeout_secs,
+        }));
+    }
+    // Opt-in anti-bot web fetching (external Scrapling).
+    if config.web_fetch_pro.enabled {
+        reg.register(Arc::new(WebFetchProTool {
+            binary: config.web_fetch_pro.path.clone(),
+            mode: config.web_fetch_pro.mode.clone(),
+            timeout_secs: config.web_fetch_pro.timeout_secs,
         }));
     }
 

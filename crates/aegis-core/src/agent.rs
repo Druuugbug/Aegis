@@ -372,6 +372,7 @@ fn detect_toolchain() -> &'static str {
 fn build_system_prompt(
     identity: &str,
     soul: Option<&str>,
+    project_context: Option<&str>,
     registry: Option<&ToolRegistry>,
     strategies: &[aegis_feedback::Strategy],
     goals_ctx: Option<&str>,
@@ -401,13 +402,22 @@ fn build_system_prompt(
          - Objects: `aegis skill|goal|task|strategy|sessions|learn|peer` subcommands.\n\
          Config lives at the single config dir (see `aegis doctor`); channels: Telegram/Discord/Slack/Feishu/SimpleX + A2A.\n\
          Long tasks: use the `background` tool (tmux-backed when available — attachable, survives restarts).\n\
+         Parallel sub-agents: for broad investigation, multi-lead troubleshooting or batch work, fan OUT with `spawn_task` (pass `tasks: [...]`) instead of working serially — a dozen+ sub-agents run in parallel. Give each sub-task its own `model` when leads differ in difficulty (a strong model for the hardest lead, a fast/cheap model for bulk checks); set `isolate=true` when they write files.\n\
          In-session shell: the user can run a shell command directly with `!<cmd>` (you'll be told what they ran).\n\
+         Host & ops (you run resident on the user's box): inspect it with `system_status`/`process`/`disk_usage`/`listening_ports`, manage services via `service` (mutations need approval), diagnose the network with `http_probe`/`dns_lookup`, and reach any API with `http_request`. Ingest docs with `read_document` (PDF/Word/Excel/PPT); compute exactly with `calc`; browse the tree with `list_files`; use `git` for the full workflow (read status/log/diff/blame AND manage: add/commit/checkout/merge/push — runs autonomously); and, when a language server is configured, `code_nav` (definition/references/hover/symbols) + `diagnostics`.\n\
          When a user asks how to do something with aegis, answer with the concrete command/step, or offer to do it."
             .to_string(),
     );
 
     // ── Stable prefix: tools, strategies, goals, memories, steer ──
     // (These rarely change within a session → maximizes KV cache hits)
+
+    // Project-level context (AEGIS.md), discovered per working directory.
+    // Stable within a session (cwd fixed) so it lives in the cache-friendly
+    // prefix, right after identity/self-knowledge.
+    if let Some(pc) = project_context {
+        parts.push(format!("\n{pc}"));
+    }
 
     if let Some(reg) = registry {
         let descs = reg.tool_descriptions();
@@ -502,6 +512,150 @@ fn load_soul_md() -> Option<String> {
     std::fs::read_to_string(path)
         .ok()
         .filter(|s| !s.trim().is_empty())
+}
+
+/// Discover project-level `AEGIS.md` context (aligned with Claude Code's
+/// `CLAUDE.md`): walk up from `cwd` to the git root (or filesystem root),
+/// collecting every `AEGIS.md` along the way, plus the global
+/// `~/.aegis/AEGIS.md`. Files closer to `cwd` are injected last so they take
+/// precedence. Returns the concatenated context (with source-path headers) or
+/// `None` when disabled / nothing found. Failures degrade to `None` so a
+/// missing file never breaks startup.
+fn load_project_context(cwd: &std::path::Path, cfg: &crate::config::ContextConfig) -> Option<String> {
+    if !cfg.project_files {
+        return None;
+    }
+    let file_cap = cfg.max_file_kb.saturating_mul(1024).max(1);
+    let total_cap = cfg.max_total_kb.saturating_mul(1024).max(1);
+
+    // Ordered list of source files: global first, then root-ward → cwd.
+    let mut sources: Vec<std::path::PathBuf> = Vec::new();
+
+    // Global default (cross-project) — optional.
+    let global = crate::config::config_dir().join("AEGIS.md");
+    if global.is_file() {
+        sources.push(global);
+    }
+
+    // Project layers: from cwd upward (stop at a git root or fs root; hard cap).
+    let mut project_layers: Vec<std::path::PathBuf> = Vec::new();
+    let mut dir = Some(cwd.to_path_buf());
+    let mut depth = 0usize;
+    while let Some(d) = dir {
+        if depth >= 8 {
+            break;
+        }
+        let candidate = d.join("AEGIS.md");
+        if candidate.is_file() {
+            project_layers.push(candidate);
+        }
+        let is_git_root = d.join(".git").exists();
+        dir = d.parent().map(|p| p.to_path_buf());
+        depth += 1;
+        if is_git_root {
+            break;
+        }
+    }
+    // cwd-first → reverse so the root-most layer is injected first, cwd last.
+    project_layers.reverse();
+    sources.extend(project_layers);
+
+    if sources.is_empty() {
+        return None;
+    }
+
+    let mut out = String::new();
+    let mut seen: std::collections::HashSet<std::path::PathBuf> = std::collections::HashSet::new();
+    for src in &sources {
+        let canon = src.canonicalize().unwrap_or_else(|_| src.clone());
+        if !seen.insert(canon.clone()) {
+            continue;
+        }
+        let Ok(mut body) = std::fs::read_to_string(src) else {
+            continue;
+        };
+        if body.trim().is_empty() {
+            continue;
+        }
+        if cfg.imports {
+            if let Some(base) = src.parent() {
+                body = expand_context_imports(&body, base, cwd, file_cap, 0, &mut seen);
+            }
+        }
+        if body.len() > file_cap {
+            body.truncate(body.floor_char_boundary(file_cap));
+            body.push_str("\n… (truncated)");
+        }
+        let header = format!("## {}\n", src.display());
+        if out.len() + header.len() + body.len() > total_cap {
+            let remaining = total_cap.saturating_sub(out.len() + header.len());
+            if remaining < 64 {
+                break;
+            }
+            out.push_str(&header);
+            body.truncate(body.floor_char_boundary(remaining));
+            out.push_str(&body);
+            out.push_str("\n… (context budget reached)");
+            break;
+        }
+        out.push_str(&header);
+        out.push_str(&body);
+        out.push('\n');
+    }
+
+    let out = out.trim().to_string();
+    if out.is_empty() {
+        None
+    } else {
+        Some(format!("# Project Context (AEGIS.md)\n{out}"))
+    }
+}
+
+/// Expand `@relative/path` import lines within an AEGIS.md body. Bounded depth
+/// + a shared `seen` set prevent runaway/circular imports. Imported paths are
+/// resolved relative to the importing file and confined to the workspace tree.
+fn expand_context_imports(
+    body: &str,
+    base: &std::path::Path,
+    cwd: &std::path::Path,
+    file_cap: usize,
+    depth: usize,
+    seen: &mut std::collections::HashSet<std::path::PathBuf>,
+) -> String {
+    if depth >= 3 {
+        return body.to_string();
+    }
+    let mut result = String::with_capacity(body.len());
+    for line in body.lines() {
+        let trimmed = line.trim();
+        if let Some(rel) = trimmed.strip_prefix('@') {
+            let rel = rel.trim();
+            if !rel.is_empty() {
+                let target = base.join(rel);
+                // Confine imports to the workspace tree (cwd and its ancestors).
+                let canon = target.canonicalize().unwrap_or_else(|_| target.clone());
+                let within = canon.starts_with(cwd)
+                    || cwd.ancestors().any(|a| canon.starts_with(a) && a.join(".git").exists());
+                if within && seen.insert(canon.clone()) {
+                    if let Ok(mut inner) = std::fs::read_to_string(&target) {
+                        if inner.len() > file_cap {
+                            inner.truncate(inner.floor_char_boundary(file_cap));
+                        }
+                        let expanded = target
+                            .parent()
+                            .map(|p| expand_context_imports(&inner, p, cwd, file_cap, depth + 1, seen))
+                            .unwrap_or(inner);
+                        result.push_str(&expanded);
+                        result.push('\n');
+                        continue;
+                    }
+                }
+            }
+        }
+        result.push_str(line);
+        result.push('\n');
+    }
+    result
 }
 
 // ── Message cleaning ──
@@ -720,6 +874,9 @@ pub struct Agent {
     registry: Option<Arc<ToolRegistry>>,
     cancel: CancellationToken,
     soul: Option<String>,
+    /// Project-level context discovered from AEGIS.md files (see
+    /// `load_project_context`). Loaded once at construction.
+    project_context: Option<String>,
     strategy_mgr: StrategyManager,
     auto_tuner: AutoTuner,
     goal_mgr: GoalManager,
@@ -747,6 +904,9 @@ pub struct Agent {
     audit: aegis_security::AuditLog,
     last_input_tokens: usize,
     plugin_registry: PluginRegistry,
+    /// Optional LSP manager: when `[lsp].enabled`, feeds language-server
+    /// diagnostics back after write_file/patch.
+    lsp: Option<Arc<aegis_lsp::LspManager>>,
     output_filters: crate::output_filter::OutputFilterRegistry,
     compactor: crate::compression::CompactionManager,
     context_window: ContextWindowManager,
@@ -765,6 +925,34 @@ impl Agent {
             &uuid::Uuid::new_v4().to_string()[..8]
         );
         let soul = load_soul_md();
+        let project_context = load_project_context(
+            &std::env::current_dir().unwrap_or_default(),
+            &config.context,
+        );
+        let lsp = if config.lsp.enabled {
+            let servers = config
+                .lsp
+                .servers
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        k.clone(),
+                        aegis_lsp::ServerSpec {
+                            command: v.command.clone(),
+                            args: v.args.clone(),
+                            extensions: v.extensions.clone(),
+                        },
+                    )
+                })
+                .collect();
+            Some(Arc::new(aegis_lsp::LspManager::new(aegis_lsp::LspSettings {
+                servers,
+                timeout_ms: config.lsp.timeout_ms,
+                max_diagnostics: config.lsp.max_diagnostics,
+            })))
+        } else {
+            None
+        };
         // No memory backend by default. The binary wires one in via
         // `set_memory_backend` (e.g. the local in-process graph). When no
         // backend is set, memory retrieval is simply skipped — the agent never
@@ -823,6 +1011,7 @@ impl Agent {
             registry: None,
             cancel: CancellationToken::new(),
             soul,
+            project_context,
             strategy_mgr,
             auto_tuner: AutoTuner::new(20),
             goal_mgr: GoalManager::new(),
@@ -843,6 +1032,7 @@ impl Agent {
             audit: aegis_security::AuditLog::with_max_mb(audit_max_mb),
             last_input_tokens: 0,
             plugin_registry: PluginRegistry::new(),
+            lsp,
             output_filters: crate::output_filter::OutputFilterRegistry::default(),
             compactor,
             context_window: ContextWindowManager::new(ctx_budget),
@@ -1514,6 +1704,40 @@ impl Agent {
         let user_input = self.vault.tokenize(&user_input);
         let user_input = user_input.as_str();
         self.plugin_registry.fire_user_message(user_input);
+        // UserPromptSubmit hooks: inject extra context for this turn.
+        if self.config.hooks.enabled {
+            let runner = crate::hooks::HookRunner::new(&self.config.hooks);
+            let cwd = std::env::current_dir().unwrap_or_default();
+            // SessionStart fires once, on the first turn of the session.
+            if self.turn_count == 0 {
+                if let crate::hooks::HookOutcome::Context(c) = runner
+                    .fire(
+                        crate::hooks::HookEvent::SessionStart,
+                        None,
+                        None,
+                        &self.session_id,
+                        &cwd,
+                    )
+                    .await
+                {
+                    self.history
+                        .push(Message::system(format!("[hook session-start]\n{c}")));
+                }
+            }
+            if let crate::hooks::HookOutcome::Context(c) = runner
+                .fire(
+                    crate::hooks::HookEvent::UserPromptSubmit,
+                    None,
+                    None,
+                    &self.session_id,
+                    &cwd,
+                )
+                .await
+            {
+                self.history
+                    .push(Message::system(format!("[hook context]\n{c}")));
+            }
+        }
         // ── Seamless file attachment: detect file paths in user input ──
         // If the message contains a path to an image/PDF that exists on disk,
         // automatically attach it as a multimodal content block alongside the text.
@@ -1844,6 +2068,14 @@ impl Agent {
         let final_text = strip_think_tags(&final_text);
 
         self.plugin_registry.fire_assistant_message(&final_text);
+        // Stop hooks: fire-and-forget side effects at end of an assistant turn.
+        if self.config.hooks.enabled {
+            let runner = crate::hooks::HookRunner::new(&self.config.hooks);
+            let cwd = std::env::current_dir().unwrap_or_default();
+            let _ = runner
+                .fire(crate::hooks::HookEvent::Stop, None, None, &self.session_id, &cwd)
+                .await;
+        }
 
         self.turn_count += 1;
         self.steer.tick();
@@ -1970,6 +2202,9 @@ impl Agent {
                     }
                 };
                 let text = self.maybe_execute_control_cmd(&text);
+                let mut text = text;
+                self.maybe_append_diagnostics(&tc.name, &tc.arguments, &mut text).await;
+                self.maybe_fire_post_tool_use(&tc.name, &tc.arguments, &mut text).await;
                 self.plugin_registry.fire_tool_result(&tc.name, &text);
                 self.callbacks.on_tool_complete(&tc.name, &text, ok);
                 self.history.push(self.make_tool_result_message(&tc.id, &text));
@@ -1991,6 +2226,9 @@ impl Agent {
                     }
                 };
                 let text = self.maybe_execute_control_cmd(&text);
+                let mut text = text;
+                self.maybe_append_diagnostics(&tc.name, &tc.arguments, &mut text).await;
+                self.maybe_fire_post_tool_use(&tc.name, &tc.arguments, &mut text).await;
                 self.plugin_registry.fire_tool_result(&tc.name, &text);
                 self.callbacks.on_tool_complete(&tc.name, &text, ok);
                 self.history.push(self.make_tool_result_message(&tc.id, &text));
@@ -2046,6 +2284,8 @@ impl Agent {
                 ))
             }
         };
+        // `args` may be replaced by a PreToolUse hook returning `modify`.
+        let mut args = args;
 
         // `clarify` is an interactive prompt: route it through the front-end's
         // `on_ask` callback (which suspends the live status line and reads
@@ -2065,6 +2305,45 @@ impl Agent {
                     .join("\n\n")
             };
             return Ok(result);
+        }
+
+        // User-configurable PreToolUse hooks: can deny / ask / modify a tool
+        // call BEFORE the built-in permission gate. Disabled → no-op.
+        if self.config.hooks.enabled {
+            let runner = crate::hooks::HookRunner::new(&self.config.hooks);
+            let cwd = std::env::current_dir().unwrap_or_default();
+            match runner
+                .fire(
+                    crate::hooks::HookEvent::PreToolUse,
+                    Some(&name),
+                    Some(&args),
+                    &self.session_id,
+                    &cwd,
+                )
+                .await
+            {
+                crate::hooks::HookOutcome::Deny(reason) => {
+                    let msg = format!("⛔ Blocked by hook ({name}): {reason}");
+                    self.audit
+                        .log_action(&self.session_id, &format!("hook-deny:{name}"), &tc.arguments);
+                    self.callbacks.on_status(&msg);
+                    return Ok(msg);
+                }
+                crate::hooks::HookOutcome::Ask(reason) => {
+                    if !self
+                        .callbacks
+                        .on_approve(&format!("Hook asks to confirm `{name}`: {reason}"))
+                    {
+                        return Ok(format!("Denied by user (hook): {name}"));
+                    }
+                }
+                crate::hooks::HookOutcome::Modify(new_args) => {
+                    self.callbacks
+                        .on_status(&format!("hook modified `{name}` arguments"));
+                    args = new_args;
+                }
+                _ => {}
+            }
         }
 
         // Config-driven permission gate (DSL rules + global mode). Falls through
@@ -2154,6 +2433,62 @@ impl Agent {
                 "⛔ Cancelled by the user before completion — this action was stopped and did NOT finish."
                     .to_string()
             ),
+        }
+    }
+
+    /// Fire PostToolUse hooks after a tool result; append any returned context
+    /// to the result text the model sees. No-op unless hooks are enabled.
+    async fn maybe_fire_post_tool_use(&self, name: &str, args_str: &str, text: &mut String) {
+        if !self.config.hooks.enabled {
+            return;
+        }
+        let args: serde_json::Value = serde_json::from_str(args_str).unwrap_or(serde_json::Value::Null);
+        let runner = crate::hooks::HookRunner::new(&self.config.hooks);
+        let cwd = std::env::current_dir().unwrap_or_default();
+        if let crate::hooks::HookOutcome::Context(c) = runner
+            .fire(
+                crate::hooks::HookEvent::PostToolUse,
+                Some(name),
+                Some(&args),
+                &self.session_id,
+                &cwd,
+            )
+            .await
+        {
+            text.push_str("\n");
+            text.push_str(&c);
+        }
+    }
+
+    /// After a successful write_file/patch, collect language-server diagnostics
+    /// for the written file and append a compact summary to `text`. No-op unless
+    /// `[lsp].enabled` and a server is configured for the file's extension.
+    /// Failures degrade silently (never blocks the write).
+    async fn maybe_append_diagnostics(&self, tool_name: &str, args: &str, text: &mut String) {
+        if !self.config.lsp.enabled || !self.config.lsp.auto_on_write {
+            return;
+        }
+        if !matches!(tool_name, "write_file" | "patch") {
+            return;
+        }
+        let Some(mgr) = self.lsp.as_ref() else {
+            return;
+        };
+        let Some(path) = serde_json::from_str::<serde_json::Value>(args)
+            .ok()
+            .and_then(|v| v.get("path").and_then(|p| p.as_str()).map(String::from))
+        else {
+            return;
+        };
+        let cwd = std::env::current_dir().unwrap_or_default();
+        let p = std::path::Path::new(&path);
+        let abs = if p.is_absolute() { p.to_path_buf() } else { cwd.join(p) };
+        if !mgr.handles(&abs) {
+            return;
+        }
+        let summary = mgr.diagnostics_summary(&abs, &cwd).await;
+        if !summary.is_empty() {
+            text.push_str(&summary);
         }
     }
 
@@ -2352,6 +2687,7 @@ impl Agent {
         let sys = build_system_prompt(
             &self.config.agent.identity,
             self.soul.as_deref(),
+            self.project_context.as_deref(),
             self.registry.as_deref(),
             strategies,
             goals_ctx.as_deref(),
@@ -3144,9 +3480,19 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_minimal() {
-        let prompt = build_system_prompt("identity", None, None, &[], None, None, None, None);
+        let prompt = build_system_prompt("identity", None, None, None, &[], None, None, None, None);
         assert!(prompt.contains("identity"));
         assert!(prompt.contains("Environment"));
+    }
+
+    #[test]
+    fn test_build_system_prompt_has_subagent_dispatch_heuristic() {
+        // The self-knowledge block must actively steer the model to fan out
+        // sub-agents (not just leave spawn_task in the tool list).
+        let prompt = build_system_prompt("identity", None, None, None, &[], None, None, None, None);
+        assert!(prompt.contains("spawn_task"));
+        assert!(prompt.contains("parallel"));
+        assert!(prompt.to_lowercase().contains("fan out"));
     }
 
     #[test]
@@ -3167,19 +3513,64 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_with_soul() {
-        let prompt = build_system_prompt("identity", Some("soul text"), None, &[], None, None, None, None);
+        let prompt = build_system_prompt("identity", Some("soul text"), None, None, &[], None, None, None, None);
         assert!(prompt.contains("soul text"));
     }
 
     #[test]
+    fn test_load_project_context_hierarchy() {
+        use std::fs;
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        // Make `root` look like a git root so discovery stops there.
+        fs::create_dir(root.join(".git")).unwrap();
+        fs::write(root.join("AEGIS.md"), "root rules").unwrap();
+        let sub = root.join("sub");
+        fs::create_dir(&sub).unwrap();
+        fs::write(sub.join("AEGIS.md"), "sub rules").unwrap();
+
+        let cfg = crate::config::ContextConfig::default();
+        let ctx = load_project_context(&sub, &cfg).expect("should find AEGIS.md");
+        assert!(ctx.contains("root rules"));
+        assert!(ctx.contains("sub rules"));
+        // cwd-closest ("sub") must come AFTER the root layer (precedence).
+        assert!(ctx.find("root rules").unwrap() < ctx.find("sub rules").unwrap());
+    }
+
+    #[test]
+    fn test_load_project_context_disabled() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("AEGIS.md"), "x").unwrap();
+        let cfg = crate::config::ContextConfig {
+            project_files: false,
+            ..Default::default()
+        };
+        assert!(load_project_context(tmp.path(), &cfg).is_none());
+    }
+
+    #[test]
+    fn test_load_project_context_import_expansion() {
+        use std::fs;
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        fs::create_dir(root.join(".git")).unwrap();
+        fs::write(root.join("style.md"), "IMPORTED STYLE").unwrap();
+        fs::write(root.join("AEGIS.md"), "see @style.md for details").unwrap();
+
+        let cfg = crate::config::ContextConfig::default();
+        let ctx = load_project_context(root, &cfg).expect("found");
+        assert!(ctx.contains("IMPORTED STYLE"));
+    }
+
+    #[test]
     fn test_build_system_prompt_with_goals() {
-        let prompt = build_system_prompt("id", None, None, &[], Some("goals ctx"), None, None, None);
+        let prompt = build_system_prompt("id", None, None, None, &[], Some("goals ctx"), None, None, None);
         assert!(prompt.contains("goals ctx"));
     }
 
     #[test]
     fn test_build_system_prompt_with_memories() {
-        let prompt = build_system_prompt("id", None, None, &[], None, Some("mem content"), None, None);
+        let prompt = build_system_prompt("id", None, None, None, &[], None, Some("mem content"), None, None);
         assert!(prompt.contains("mem content"));
     }
 
@@ -3339,6 +3730,7 @@ mod tests {
             "my identity",
             Some("soul text"),
             None,
+            None,
             &[],
             Some("goals here"),
             Some("memories here"),
@@ -3356,7 +3748,7 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_empty_identity() {
-        let prompt = build_system_prompt("", None, None, &[], None, None, None, None);
+        let prompt = build_system_prompt("", None, None, None, &[], None, None, None, None);
         assert!(prompt.contains("Environment"));
     }
 

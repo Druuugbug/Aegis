@@ -39,10 +39,25 @@ pub struct Config {
     pub browser: BrowserConfig,
     #[serde(default)]
     pub maigret: MaigretConfig,
+    /// Opt-in heavy PDF extraction via external `opendataloader-pdf`.
+    #[serde(default)]
+    pub doc_extract: DocExtractConfig,
+    /// Opt-in anti-bot web fetching via external `Scrapling`.
+    #[serde(default)]
+    pub web_fetch_pro: WebFetchProConfig,
     #[serde(default)]
     pub perception: PerceptionConfig,
     #[serde(default)]
     pub learning: LearningConfig,
+    /// Project-level context discovery (AEGIS.md). See [`ContextConfig`].
+    #[serde(default)]
+    pub context: ContextConfig,
+    /// LSP diagnostics feedback after writes. See [`LspConfig`].
+    #[serde(default)]
+    pub lsp: LspConfig,
+    /// User-configurable, interceptable lifecycle hooks. See [`HooksConfig`].
+    #[serde(default)]
+    pub hooks: HooksConfig,
     #[serde(default)]
     pub server: ServerConfig,
     /// A2A peer agents (other aegis instances) for multi-machine delegation.
@@ -1361,6 +1376,143 @@ impl Default for LearningConfig {
     }
 }
 
+/// Project-level context discovery: auto-discover `AEGIS.md` files by walking
+/// up from the current directory to the git/filesystem root, and inject them
+/// into the system prompt (aligned with Claude Code's `CLAUDE.md`). The
+/// per-project config directory convention is `.aegis/`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextConfig {
+    /// Master switch for AEGIS.md discovery. Default: enabled.
+    #[serde(default = "d_true")]
+    pub project_files: bool,
+    /// Per-file size cap in KB (larger files are truncated). Default: 4.
+    #[serde(default = "d_ctx_file_kb")]
+    pub max_file_kb: usize,
+    /// Total project-context size cap in KB. Default: 12.
+    #[serde(default = "d_ctx_total_kb")]
+    pub max_total_kb: usize,
+    /// Expand `@relative/path` import lines inside AEGIS.md. Default: enabled.
+    #[serde(default = "d_true")]
+    pub imports: bool,
+}
+
+impl Default for ContextConfig {
+    fn default() -> Self {
+        Self {
+            project_files: true,
+            max_file_kb: 4,
+            max_total_kb: 12,
+            imports: true,
+        }
+    }
+}
+
+fn d_ctx_file_kb() -> usize {
+    4
+}
+
+fn d_ctx_total_kb() -> usize {
+    12
+}
+
+/// LSP diagnostics feedback: after the agent writes/patches a source file, run
+/// the matching language server and append a compact diagnostics summary to the
+/// tool result. Disabled by default (opt-in; needs the language servers
+/// installed locally). Aligned with the design in `docs/aegis-lsp-diagnostics-design.md`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LspConfig {
+    /// Master switch. Default: disabled.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Auto-collect diagnostics after write_file/patch. Default: true (when enabled).
+    #[serde(default = "d_true")]
+    pub auto_on_write: bool,
+    /// Per-file diagnostic collection timeout in milliseconds. Default: 3000.
+    #[serde(default = "d_lsp_timeout_ms")]
+    pub timeout_ms: u64,
+    /// Max diagnostics appended per file. Default: 20.
+    #[serde(default = "d_lsp_max_diags")]
+    pub max_diagnostics: usize,
+    /// language name → server spec.
+    #[serde(default)]
+    pub servers: std::collections::HashMap<String, LspServerConfig>,
+}
+
+impl Default for LspConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            auto_on_write: true,
+            timeout_ms: 3000,
+            max_diagnostics: 20,
+            servers: std::collections::HashMap::new(),
+        }
+    }
+}
+
+/// One language server entry in `[lsp.servers.<lang>]`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LspServerConfig {
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Extensions (without dot) this server handles, e.g. ["ts", "tsx"].
+    pub extensions: Vec<String>,
+}
+
+fn d_lsp_timeout_ms() -> u64 {
+    3000
+}
+
+fn d_lsp_max_diags() -> usize {
+    20
+}
+
+/// User-configurable shell hooks fired at agent lifecycle points. Aligned with
+/// the design in `docs/aegis-hooks-design.md`. `PreToolUse` hooks can allow /
+/// deny / ask / modify a tool call; other events feed context or run side
+/// effects. Disabled by default (zero impact when unconfigured).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct HooksConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub pre_tool_use: Vec<HookDef>,
+    #[serde(default)]
+    pub post_tool_use: Vec<HookDef>,
+    #[serde(default)]
+    pub user_prompt_submit: Vec<HookDef>,
+    #[serde(default)]
+    pub stop: Vec<HookDef>,
+    #[serde(default)]
+    pub session_start: Vec<HookDef>,
+    #[serde(default)]
+    pub session_end: Vec<HookDef>,
+}
+
+/// One hook definition.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HookDef {
+    /// Tool/param matcher DSL (reuses the permission-rule syntax), e.g.
+    /// `terminal(command:git commit*)`, `write_file(path:*.rs)`, `*`.
+    /// Ignored for non-tool events.
+    #[serde(default = "d_hook_matcher")]
+    pub matcher: String,
+    /// Shell command to run. Event context is passed via stdin (JSON) + env vars.
+    pub command: String,
+    /// Timeout in seconds (default 30).
+    #[serde(default = "d_hook_timeout")]
+    pub timeout_secs: u64,
+}
+
+fn d_hook_matcher() -> String {
+    "*".to_string()
+}
+
+fn d_hook_timeout() -> u64 {
+    30
+}
+
 // ── Loading ──
 // ── Browser ──
 
@@ -1457,6 +1609,86 @@ impl Default for MaigretConfig {
             path: d_maigret_path(),
             timeout_secs: d_maigret_timeout(),
             top_sites: d_maigret_top_sites(),
+        }
+    }
+}
+
+// ── doc_extract_pro (external opendataloader-pdf) ──
+
+/// Opt-in configuration for the `doc_extract_pro` tool (external
+/// `opendataloader-pdf`). Disabled by default; needs a JVM installed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocExtractConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    /// Executable name (on PATH) or absolute path.
+    #[serde(default = "d_doc_extract_path")]
+    pub path: String,
+    /// "fast" (deterministic, local) or "hybrid" (AI backend, OCR).
+    #[serde(default = "d_doc_extract_mode")]
+    pub mode: String,
+    /// Per-invocation timeout in seconds.
+    #[serde(default = "d_doc_extract_timeout")]
+    pub timeout_secs: u64,
+}
+
+fn d_doc_extract_path() -> String {
+    "opendataloader-pdf".into()
+}
+fn d_doc_extract_mode() -> String {
+    "fast".into()
+}
+fn d_doc_extract_timeout() -> u64 {
+    120
+}
+
+impl Default for DocExtractConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            path: d_doc_extract_path(),
+            mode: d_doc_extract_mode(),
+            timeout_secs: d_doc_extract_timeout(),
+        }
+    }
+}
+
+// ── web_fetch_pro (external Scrapling) ──
+
+/// Opt-in configuration for the `web_fetch_pro` tool (external `Scrapling`).
+/// Disabled by default; `stealth` mode launches a headless browser.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebFetchProConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    /// Executable name (on PATH) or absolute path.
+    #[serde(default = "d_web_fetch_pro_path")]
+    pub path: String,
+    /// "http" (light) or "stealth" (browser, Cloudflare bypass).
+    #[serde(default = "d_web_fetch_pro_mode")]
+    pub mode: String,
+    /// Per-invocation timeout in seconds.
+    #[serde(default = "d_web_fetch_pro_timeout")]
+    pub timeout_secs: u64,
+}
+
+fn d_web_fetch_pro_path() -> String {
+    "scrapling".into()
+}
+fn d_web_fetch_pro_mode() -> String {
+    "http".into()
+}
+fn d_web_fetch_pro_timeout() -> u64 {
+    120
+}
+
+impl Default for WebFetchProConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            path: d_web_fetch_pro_path(),
+            mode: d_web_fetch_pro_mode(),
+            timeout_secs: d_web_fetch_pro_timeout(),
         }
     }
 }

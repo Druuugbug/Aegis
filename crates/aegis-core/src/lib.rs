@@ -2,6 +2,7 @@ pub mod agent;
 pub mod artifacts;
 pub mod context_window;
 pub mod graph;
+pub mod hooks;
 pub mod channel;
 pub mod compression;
 pub mod server_components;

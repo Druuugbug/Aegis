@@ -21,6 +21,65 @@ impl CliCallbacks {
     }
 }
 
+/// Parse `spawn_task` tool arguments into a one-line dispatch summary for the
+/// live status view, e.g. `"🤖 dispatching 12 sub-agents in parallel (3×gpt-4o, 9×gpt-4o-mini)"`.
+///
+/// Makes the fan-out visible the moment it is dispatched (before any worker
+/// finishes). Returns `None` when the args don't actually describe a dispatch
+/// (no usable `prompt`/`tasks`), so callers can skip the extra line.
+pub(crate) fn summarize_spawn_dispatch(args: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(args).ok()?;
+    let top_model = v
+        .get("model")
+        .and_then(|m| m.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    let has_prompt = |o: &serde_json::Value| {
+        o.get("prompt")
+            .and_then(|p| p.as_str())
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false)
+    };
+    let model_of = |o: &serde_json::Value| {
+        o.get("model")
+            .and_then(|m| m.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .or(top_model)
+            .unwrap_or("default model")
+            .to_string()
+    };
+
+    let mut labels: Vec<String> = Vec::new();
+    if let Some(arr) = v.get("tasks").and_then(|t| t.as_array()) {
+        for t in arr {
+            if has_prompt(t) {
+                labels.push(model_of(t));
+            }
+        }
+    } else if has_prompt(&v) {
+        labels.push(top_model.unwrap_or("default model").to_string());
+    }
+
+    if labels.is_empty() {
+        return None;
+    }
+
+    let n = labels.len();
+    let mut counts: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    for l in &labels {
+        *counts.entry(l.as_str()).or_insert(0) += 1;
+    }
+    let breakdown = counts
+        .iter()
+        .map(|(m, c)| format!("{c}×{m}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let noun = if n == 1 { "sub-agent" } else { "sub-agents" };
+    Some(format!("🤖 dispatching {n} {noun} in parallel ({breakdown})"))
+}
+
 impl AgentCallbacks for CliCallbacks {
     fn on_delta(&self, _text: &str) {
         // The answer is rendered as Markdown at end of turn (see chat.rs), so we
@@ -64,11 +123,18 @@ impl AgentCallbacks for CliCallbacks {
                 ellipsis.dimmed(),
             ));
         }
+        // Make sub-agent fan-out visible the instant it's dispatched: parse the
+        // spawn_task args and show how many sub-agents (and which models) went out.
+        if name == "spawn_task" {
+            if let Some(summary) = summarize_spawn_dispatch(args) {
+                self.status
+                    .line(&format!("  {} {}", "⇒".bright_cyan(), summary.bright_cyan()));
+            }
+        }
         self.status.set_label(format!("Running {name}…"));
     }
 
-    fn on_tool_complete(&self, name: &str, _result: &str, success: bool) {
-        // No success checkmark: the `● name` start line is the record, and the
+    fn on_tool_complete(&self, name: &str, _result: &str, success: bool) {        // No success checkmark: the `● name` start line is the record, and the
         // live spinner shows the tool running. Only surface failures — as a red
         // circle (not a ✗), matching the circle the user asked for.
         if !success {
@@ -110,5 +176,43 @@ impl AgentCallbacks for CliCallbacks {
         // stay visible and stable (the spinner would otherwise repaint over it).
         self.status.clear();
         crate::select::run(questions)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::summarize_spawn_dispatch;
+
+    #[test]
+    fn summarize_batch_heterogeneous() {
+        let args = r#"{"model":"gpt-4o-mini","tasks":[
+            {"prompt":"lead A","model":"gpt-4o"},
+            {"prompt":"bulk 1"},
+            {"prompt":"bulk 2"}
+        ]}"#;
+        let s = summarize_spawn_dispatch(args).unwrap();
+        assert!(s.contains("3 sub-agents"), "got: {s}");
+        assert!(s.contains("1×gpt-4o"), "got: {s}");
+        assert!(s.contains("2×gpt-4o-mini"), "got: {s}");
+    }
+
+    #[test]
+    fn summarize_single_prompt_default_model() {
+        let s = summarize_spawn_dispatch(r#"{"prompt":"look at logs"}"#).unwrap();
+        assert!(s.contains("1 sub-agent "), "got: {s}");
+        assert!(s.contains("1×default model"), "got: {s}");
+    }
+
+    #[test]
+    fn summarize_skips_tasks_without_prompt() {
+        let s = summarize_spawn_dispatch(r#"{"tasks":[{"model":"gpt-4o"},{"prompt":"real"}]}"#).unwrap();
+        assert!(s.contains("1 sub-agent "), "got: {s}");
+    }
+
+    #[test]
+    fn summarize_none_when_no_dispatch() {
+        assert!(summarize_spawn_dispatch("{}").is_none());
+        assert!(summarize_spawn_dispatch("not json").is_none());
+        assert!(summarize_spawn_dispatch(r#"{"depends_on":[]}"#).is_none());
     }
 }

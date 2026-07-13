@@ -7,13 +7,14 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-aegis-types = { path = "../aegis-types", version = "1.0.4" }
-aegis-security = { path = "../aegis-security", version = "1.0.4" }
-aegis-sandbox = { path = "../aegis-sandbox", version = "1.0.4" }
-aegis-a2a = { path = "../aegis-a2a", version = "1.0.4" }
-aegis-memory = { path = "../aegis-memory", version = "1.0.4", package = "aegis-agent-memory" }
-aegis-record = { path = "../aegis-record", version = "1.0.4" }
-aegis-feedback = { path = "../aegis-feedback", version = "1.0.4" }
+aegis-types = { path = "../aegis-types", version = "1.0.5" }
+aegis-security = { path = "../aegis-security", version = "1.0.5" }
+aegis-sandbox = { path = "../aegis-sandbox", version = "1.0.5" }
+aegis-a2a = { path = "../aegis-a2a", version = "1.0.5" }
+aegis-memory = { path = "../aegis-memory", version = "1.0.5", package = "aegis-agent-memory" }
+aegis-record = { path = "../aegis-record", version = "1.0.5" }
+aegis-feedback = { path = "../aegis-feedback", version = "1.0.5" }
+aegis-lsp = { path = "../aegis-lsp", version = "1.0.5" }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
@@ -30,6 +31,24 @@ scraper = { workspace = true }
 toml = { workspace = true }
 futures = { workspace = true }
 base64 = { workspace = true }
+
+# ── Content ingestion (web_extract → Markdown) ──
+# Light, pure-Rust. web_extract is a core tool, so these are unconditional.
+htmd = "0.5"
+dom_smoothie = "0.18"
+
+# ── Document reading (PDF / Office) for ReadDocumentTool ──
+# Pure-Rust, no external runtime. Unconditional so `read_document` is always
+# available (functional-completeness goal). A future `lite` build can gate them.
+pdf-extract = "0.12"
+calamine = "0.36"
+dotext = "0.1"
+
+# ── First-tier server/utility tools ──
+# meval: MIT/Unlicense math evaluator (calc). sysinfo: cross-platform host
+# metrics (system_status). http_request/list_files reuse reqwest/std — no deps.
+meval = "0.2"
+sysinfo = "0.39"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

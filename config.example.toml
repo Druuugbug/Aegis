@@ -306,6 +306,28 @@ enabled = true
 # timeout_secs = 120
 # top_sites = 500              # 0 = all sites
 
+# ── Content ingestion (opt-in heavy tools) ──────────
+# The built-in `web_extract` (HTML→Markdown) and `read_document` (PDF/Word/Excel/
+# PowerPoint, pure-Rust, no OCR) are always on and need no config. The two tools
+# below are opt-in wrappers around external programs for harder cases; they are
+# heavier (JVM / headless browser) and OFF by default — not recommended on 1c1g.
+
+# `doc_extract_pro` — high-accuracy PDF extraction (scanned/OCR, complex tables,
+# formulas) via external opendataloader-pdf (needs a JVM; hybrid adds ML models).
+# [doc_extract]
+# enabled = true
+# path = "opendataloader-pdf"  # binary on PATH or absolute path
+# mode = "fast"                # "fast" (local, no GPU) | "hybrid" (AI backend, OCR)
+# timeout_secs = 120
+
+# `web_fetch_pro` — anti-bot web fetch (TLS-fingerprint HTTP or a stealth browser
+# that bypasses Cloudflare) via external Scrapling. `stealth` launches a browser.
+# [web_fetch_pro]
+# enabled = true
+# path = "scrapling"           # binary on PATH or absolute path
+# mode = "http"                # "http" (light) | "stealth" (browser, heavy)
+# timeout_secs = 120
+
 
 # ── Multi-machine A2A peers ─────────────────────────
 # Other aegis instances this agent can delegate to (delegate_work / ask_question).
@@ -423,3 +445,63 @@ enabled = true
 # check = "tail -n 50 /var/log/app/app.log"
 # contains = "ERROR"            # trigger: stdout contains this substring
 # notify_to = "oc_xxxxxxxx"
+
+# ---------------------------------------------------------------------------
+# Project-level context (AEGIS.md) — aligned with Claude Code's CLAUDE.md
+#
+# On start (and per working directory), Aegis discovers `AEGIS.md` files by
+# walking up from the current dir to the git root, plus a global
+# `~/.aegis/AEGIS.md`, and injects them into the system prompt. Files closer to
+# the cwd take precedence. `SOUL.md` remains the cross-project persona; AEGIS.md
+# carries per-project facts/conventions. The per-project config directory
+# convention is `.aegis/` (reserved for `.aegis/commands/`, `.aegis/agents/`).
+[context]
+project_files = true   # discover AEGIS.md (default: true)
+max_file_kb = 4        # per-file size cap
+max_total_kb = 12      # total project-context cap
+imports = true         # expand `@relative/path` import lines inside AEGIS.md
+
+# ---------------------------------------------------------------------------
+# LSP diagnostics feedback — after write_file/patch, run the matching language
+# server and append a compact diagnostics summary (errors/warnings) to the tool
+# result so the model sees compile/type errors immediately. Opt-in; needs the
+# language servers installed locally. Also registers an on-demand `diagnostics`
+# tool. See docs/aegis-lsp-diagnostics-design.md.
+# [lsp]
+# enabled = true
+# auto_on_write = true
+# timeout_ms = 3000
+# max_diagnostics = 20
+#   [lsp.servers.rust]
+#   command = "rust-analyzer"
+#   extensions = ["rs"]
+#   [lsp.servers.typescript]
+#   command = "typescript-language-server"
+#   args = ["--stdio"]
+#   extensions = ["ts", "tsx", "js", "jsx"]
+#   [lsp.servers.python]
+#   command = "pyright-langserver"
+#   args = ["--stdio"]
+#   extensions = ["py"]
+
+# ---------------------------------------------------------------------------
+# Interceptable lifecycle hooks — run shell commands at agent events. PreToolUse
+# hooks can allow/deny/ask/modify a tool call (JSON on stdout: {"decision":...}
+# or exit code 0=allow / 2=deny). Other events (PostToolUse / UserPromptSubmit /
+# Stop / SessionStart / SessionEnd) can inject context via {"context":"…"}.
+# Event data arrives on stdin (JSON) + env (AEGIS_HOOK_EVENT, AEGIS_HOOK_TOOL,
+# AEGIS_SESSION_ID, AEGIS_CWD). See docs/aegis-hooks-design.md.
+# [hooks]
+# enabled = true
+#   # Enforce fmt before committing (blocks the commit if it fails).
+#   [[hooks.pre_tool_use]]
+#   matcher = "terminal(command:git commit*)"
+#   command = "cargo fmt --all -- --check"
+#   # Block reading .env files.
+#   [[hooks.pre_tool_use]]
+#   matcher = "read_file(path:*.env)"
+#   command = "echo '{\"decision\":\"deny\",\"reason\":\"reading .env is blocked\"}'"
+#   # Record clippy output after writing Rust files.
+#   [[hooks.post_tool_use]]
+#   matcher = "write_file(path:*.rs)"
+#   command = "cargo clippy --quiet 2>&1 | head -n 40 | sed 's/.*/{\"context\":\"&\"}/' | head -1"

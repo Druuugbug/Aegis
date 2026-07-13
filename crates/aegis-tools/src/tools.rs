@@ -1510,10 +1510,118 @@ pub struct SpawnTaskTool {
     semaphore: Arc<tokio::sync::Semaphore>,
 }
 
+/// A single sub-agent task with optional per-task overrides. Enables
+/// heterogeneous dispatch: each spawned worker may run a different model
+/// and/or iteration budget than its siblings.
+#[derive(Debug, Clone, PartialEq)]
+struct TaskSpec {
+    prompt: String,
+    /// Model override for this sub-agent; `None` → worker's config default.
+    model: Option<String>,
+    max_turns: u64,
+}
+
+/// Read a non-empty, trimmed string field from a JSON object, else `None`.
+fn opt_str(v: &Value, key: &str) -> Option<String> {
+    v[key]
+        .as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// Parse the tool arguments into the list of sub-tasks to dispatch.
+///
+/// Supports two shapes (batch takes precedence):
+/// - batch: `tasks: [{ prompt, model?, max_turns? }, ...]`
+/// - single: top-level `prompt` (+ optional `model`, `max_turns`)
+///
+/// Per-task `model` / `max_turns` fall back to the top-level values, which in
+/// turn default to (config model) / 20.
+fn parse_task_specs(args: &Value) -> Vec<TaskSpec> {
+    let top_model = opt_str(args, "model");
+    let top_max_turns = args["max_turns"].as_u64().unwrap_or(20);
+
+    if let Some(arr) = args["tasks"].as_array() {
+        arr.iter()
+            .filter_map(|t| {
+                let prompt = opt_str(t, "prompt")?;
+                Some(TaskSpec {
+                    prompt,
+                    model: opt_str(t, "model").or_else(|| top_model.clone()),
+                    max_turns: t["max_turns"].as_u64().unwrap_or(top_max_turns),
+                })
+            })
+            .collect()
+    } else if let Some(p) = args["prompt"].as_str() {
+        vec![TaskSpec {
+            prompt: p.to_string(),
+            model: top_model,
+            max_turns: top_max_turns,
+        }]
+    } else {
+        Vec::new()
+    }
+}
+
+/// Human-readable count of each model across the spawned sub-tasks, e.g.
+/// `"3×gpt-4o, 9×gpt-4o-mini"` (or `"12×default model"` when none override).
+fn model_breakdown(specs: &[TaskSpec]) -> String {
+    use std::collections::BTreeMap;
+    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+    for s in specs {
+        *counts
+            .entry(s.model.as_deref().unwrap_or("default model"))
+            .or_insert(0) += 1;
+    }
+    counts
+        .iter()
+        .map(|(m, n)| format!("{n}×{m}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// One-line banner prepended to a `spawn_task` result so both the user and the
+/// relaying model can see how many sub-agents were dispatched and with which models.
+fn dispatch_header(specs: &[TaskSpec]) -> String {
+    let n = specs.len();
+    let noun = if n == 1 { "sub-agent" } else { "sub-agents" };
+    format!(
+        "🤖 Dispatched {n} {noun} in parallel (models: {})",
+        model_breakdown(specs)
+    )
+}
+
+/// One-line footer summarizing successes/failures across the dispatched sub-agents.
+fn dispatch_footer(ok: usize, total: usize) -> String {
+    let failed = total.saturating_sub(ok);
+    format!("── {total} sub-agents · {ok} ✅ / {failed} ❌ ──")
+}
+
+/// Hard upper bound on how many characters of a single sub-agent's reply are
+/// folded back into the parent's context. A dozen fanned-out sub-agents each
+/// returning a long transcript would blow up the parent context, so we cap
+/// every reply. The worker is also instructed to self-summarize; this is the
+/// safety backstop for a model that ignores that instruction.
+const MAX_WORKER_SUMMARY_CHARS: usize = 2000;
+
+/// Truncate a sub-agent reply to `max` chars on a char boundary, appending a
+/// note when truncated. Guarantees the parent context cost per sub-agent has a
+/// fixed upper bound regardless of model compliance.
+fn cap_summary(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_string();
+    }
+    let truncated: String = text.chars().take(max).collect();
+    format!(
+        "{truncated}\n…[truncated to {max} chars to protect the parent context; \
+the full result is in this sub-agent's own session]"
+    )
+}
+
 impl SpawnTaskTool {
     /// Create a new `SpawnTaskTool` with a concurrency limit for parallel worker tasks.
-    pub fn new(max_concurrent: usize) -> Self {
-        Self {
+    pub fn new(max_concurrent: usize) -> Self {        Self {
             semaphore: Arc::new(tokio::sync::Semaphore::new(max_concurrent)),
         }
     }
@@ -1525,21 +1633,24 @@ impl Tool for SpawnTaskTool {
         "spawn_task"
     }
     fn description(&self) -> &str {
-        "Spawn a sub-agent to handle a task independently. Supports parallel execution. Set isolate=true for file-modifying tasks: each runs in its own git worktree+branch (no clobbering the main tree or sibling tasks; changes land on a branch for review)."
+        "Spawn a sub-agent to handle a task independently. Supports parallel execution: pass `tasks` to fan out a dozen+ sub-agents at once (e.g. to investigate many leads in parallel). Each sub-task may run a DIFFERENT model via its `model` field — assign a strong model to the most suspicious lead and a cheap/fast model to bulk checks (heterogeneous dispatch). Each sub-agent returns ONLY a concise summary of its result (not its full transcript), so fanning out many sub-agents won't blow up your context. Set isolate=true for file-modifying tasks: each runs in its own git worktree+branch (no clobbering the main tree or sibling tasks; changes land on a branch for review)."
     }
     fn parameters(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
-                "prompt": { "type": "string", "description": "Task description for the worker" },
-                "max_turns": { "type": "integer", "description": "Max iterations (default 20)" },
+                "prompt": { "type": "string", "description": "Task description for the worker (single-task mode)" },
+                "model": { "type": "string", "description": "Model to run the sub-agent(s) with (e.g. gpt-4o, gpt-4o-mini, o1). Omit to use the configured default. For a `tasks` batch this is the fallback for items that don't set their own model." },
+                "max_turns": { "type": "integer", "description": "Max iterations (default 20). For a `tasks` batch this is the fallback for items that don't set their own." },
                 "isolate": { "type": "boolean", "description": "Run each sub-task in an isolated git worktree+branch (recommended when tasks modify files). Default false." },
                 "tasks": {
                     "type": "array",
                     "items": { "type": "object", "properties": {
-                        "prompt": { "type": "string" }
-                    }},
-                    "description": "Multiple tasks to run in parallel"
+                        "prompt": { "type": "string", "description": "Task description for this sub-agent" },
+                        "model": { "type": "string", "description": "Per-task model override for heterogeneous dispatch (falls back to top-level `model`, then the config default)" },
+                        "max_turns": { "type": "integer", "description": "Per-task iteration budget (falls back to top-level `max_turns`)" }
+                    }, "required": ["prompt"] },
+                    "description": "Multiple tasks to run in parallel. Each item may specify its own `model`/`max_turns` so different sub-agents can use different models."
                 },
                 "depends_on": {
                     "type": "array",
@@ -1570,30 +1681,25 @@ impl Tool for SpawnTaskTool {
             wait_for_tasks(depends_on, timeout_secs).await?;
         }
 
-        // Single task or batch
-        let tasks: Vec<String> = if let Some(arr) = args["tasks"].as_array() {
-            arr.iter()
-                .filter_map(|t| t["prompt"].as_str().map(String::from))
-                .collect()
-        } else if let Some(p) = args["prompt"].as_str() {
-            vec![p.to_string()]
-        } else {
+        // Single task or batch, with optional per-task model/max_turns.
+        let specs = parse_task_specs(&args);
+        if specs.is_empty() {
             return Ok("No prompt provided.".to_string());
-        };
+        }
 
-        let max_turns = args["max_turns"].as_u64().unwrap_or(20);
         // Opt-in filesystem isolation: each sub-task runs in its own git
         // worktree + branch, so parallel workers never clobber the main tree or
         // each other. Changes stay on the branch for review/merge.
         let isolate = args["isolate"].as_bool().unwrap_or(false);
         let repo = _ctx.cwd.clone();
         let mut results = Vec::new();
+        let mut ok_count = 0usize;
 
         // Find worker binary
         let worker_bin = find_worker_binary();
 
         let mut handles = Vec::new();
-        for (i, prompt) in tasks.iter().enumerate() {
+        for (i, spec) in specs.iter().enumerate() {
             let permit = self
                 .semaphore
                 .clone()
@@ -1601,7 +1707,9 @@ impl Tool for SpawnTaskTool {
                 .await
                 .map_err(|e| anyhow::anyhow!("semaphore: {e}"))?;
             let bin = worker_bin.clone();
-            let prompt = prompt.clone();
+            let prompt = spec.prompt.clone();
+            let model = spec.model.clone();
+            let max_turns = spec.max_turns;
             let worktree = if isolate {
                 create_worktree(&repo, &format!("{}-{}", std::process::id(), i))
             } else {
@@ -1612,25 +1720,36 @@ impl Tool for SpawnTaskTool {
 
             let handle = tokio::spawn(async move {
                 let _permit = permit;
-                let result = run_worker(&bin, &prompt, max_turns, cwd).await;
-                (i, result, branch)
+                let label = model.clone().unwrap_or_default();
+                let result = run_worker(&bin, &prompt, max_turns, model, cwd).await;
+                (i, result, branch, label)
             });
             handles.push(handle);
         }
 
         for handle in handles {
-            let (i, result, branch) = handle.await.map_err(|e| anyhow::anyhow!("join: {e}"))?;
+            let (i, result, branch, model_label) =
+                handle.await.map_err(|e| anyhow::anyhow!("join: {e}"))?;
             let loc = branch
                 .map(|b| format!(" [isolated → branch `{b}`; review/merge it]"))
                 .unwrap_or_default();
+            let model_tag = if model_label.is_empty() {
+                String::new()
+            } else {
+                format!(" [model: {model_label}]")
+            };
             match result {
-                Ok(text) => results.push(format!("[Worker {}] ✅{}\n{}", i + 1, loc, text)),
-                Err(e) => results.push(format!("[Worker {}] ❌{} {}", i + 1, loc, e)),
+                Ok(text) => {
+                    ok_count += 1;
+                    let summary = cap_summary(&text, MAX_WORKER_SUMMARY_CHARS);
+                    results.push(format!("[Worker {}] ✅{}{}\n{}", i + 1, model_tag, loc, summary))
+                }
+                Err(e) => results.push(format!("[Worker {}] ❌{}{} {}", i + 1, model_tag, loc, e)),
             }
         }
 
         // Cluster co-evolution: promote worker results as global strategies
-        if tasks.len() > 1 {
+        if specs.len() > 1 {
             let successful: Vec<&String> = results.iter()
                 .filter(|r| r.contains('✅'))
                 .collect();
@@ -1696,7 +1815,9 @@ impl Tool for SpawnTaskTool {
             }
         }
 
-        Ok(results.join("\n\n"))
+        let header = dispatch_header(&specs);
+        let footer = dispatch_footer(ok_count, specs.len());
+        Ok(format!("{}\n\n{}\n\n{}", header, results.join("\n\n"), footer))
     }
 }
 
@@ -1795,10 +1916,16 @@ fn create_worktree(repo: &std::path::Path, task_id: &str) -> Option<(std::path::
     }
 }
 
-async fn run_worker(bin: &str, prompt: &str, max_turns: u64, cwd: Option<std::path::PathBuf>) -> Result<String> {
+async fn run_worker(bin: &str, prompt: &str, max_turns: u64, model: Option<String>, cwd: Option<std::path::PathBuf>) -> Result<String> {
+    let mut params = serde_json::json!({ "prompt": prompt, "max_turns": max_turns });
+    // Heterogeneous dispatch: forward a per-task model when set so this
+    // sub-agent runs a different model than its siblings.
+    if let Some(m) = model.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        params["model"] = serde_json::Value::String(m.to_string());
+    }
     let request = serde_json::json!({
         "jsonrpc": "2.0", "id": 1, "method": "task/run",
-        "params": { "prompt": prompt, "max_turns": max_turns }
+        "params": params
     });
 
     let mut child = tokio::process::Command::new(bin);
@@ -2087,14 +2214,16 @@ impl Tool for WebExtractTool {
     }
 
     fn description(&self) -> &str {
-        "Fetch a URL and extract the main text content as plain text."
+        "Fetch a URL and convert its main content to clean Markdown (readability extraction + HTML→Markdown). Set format='text' for plain text."
     }
 
     fn parameters(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
-                "url": { "type": "string", "description": "URL to fetch and extract" }
+                "url": { "type": "string", "description": "URL to fetch and extract" },
+                "format": { "type": "string", "enum": ["markdown", "text"], "description": "Output format (default: markdown)" },
+                "max_chars": { "type": "integer", "description": "Truncate output to this many characters (default 16000; 0 = no limit)" }
             },
             "required": ["url"]
         })
@@ -2133,27 +2262,103 @@ impl Tool for WebExtractTool {
 
         is_safe_url(url).map_err(|e| anyhow::anyhow!("SSRF check failed: {e}"))?;
 
+        let format = args["format"].as_str().unwrap_or("markdown");
+        // Default cap ~16k chars (≈4k tokens); 0 disables truncation.
+        let max_chars = args["max_chars"].as_u64().map(|v| v as usize).unwrap_or(16_000);
+
         let client = reqwest::Client::builder()
             .user_agent("Mozilla/5.0 (compatible; aegis-agent/0.1)")
             .build()?;
-        let html = client.get(url).send().await?.text().await?;
 
-        let document = scraper::Html::parse_document(&html);
+        let mut resp = client.get(url).send().await?;
 
-        // Remove script and style nodes by selecting content from article/main/body
-        let content = extract_text_content(&document);
+        // Hard cap the downloaded body to protect against OOM on small hosts
+        // (1c1g). Stream chunks and stop once the cap is exceeded.
+        const MAX_BYTES: usize = 10 * 1024 * 1024; // 10 MiB
+        let content_type = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_lowercase();
+        let mut body: Vec<u8> = Vec::new();
+        while let Some(chunk) = resp.chunk().await? {
+            body.extend_from_slice(&chunk);
+            if body.len() >= MAX_BYTES {
+                body.truncate(MAX_BYTES);
+                break;
+            }
+        }
 
-        // Compress whitespace
-        let content = compress_whitespace(&content);
+        // Non-HTML text (json, plaintext, csv, markdown) → return as-is.
+        let is_html = content_type.contains("html") || content_type.is_empty();
+        let content = if !is_html && content_type.starts_with("text/") {
+            String::from_utf8_lossy(&body).into_owned()
+        } else {
+            let html = String::from_utf8_lossy(&body).into_owned();
+            // Keep all non-Send readability/DOM types inside this sync helper so
+            // the async future stays Send (Readability is !Send).
+            if format == "text" {
+                let document = scraper::Html::parse_document(&html);
+                compress_whitespace(&extract_text_content(&document))
+            } else {
+                html_to_markdown(&html, url)
+            }
+        };
 
-        const MAX_LEN: usize = 4000;
-        if content.len() > MAX_LEN {
-            let truncated = &content[..MAX_LEN];
-            Ok(format!("{}\n\n... [content truncated at 4000 characters. Use a more specific URL or search for subsections.]", truncated))
+        if max_chars > 0 && content.chars().count() > max_chars {
+            let truncated: String = content.chars().take(max_chars).collect();
+            Ok(format!(
+                "{truncated}\n\n... [content truncated at {max_chars} characters. Use a more specific URL, or pass a larger max_chars.]"
+            ))
         } else {
             Ok(content)
         }
     }
+}
+
+/// Convert a full HTML page to Markdown: run readability to isolate the main
+/// article, then convert that fragment to Markdown. Falls back to whole-page
+/// conversion, then to plain text, so the result is never worse than before.
+///
+/// All `!Send` types (`dom_smoothie::Readability`, `dom_query::Document`) are
+/// confined to this synchronous function so callers can stay `Send` across
+/// `await` points.
+fn html_to_markdown(html: &str, url: &str) -> String {
+    let (title, body_html) = match extract_readable(html, url) {
+        Some((t, c)) if !c.trim().is_empty() => (Some(t), c),
+        _ => (None, html.to_string()),
+    };
+
+    let body_md = match htmd::convert(&body_html) {
+        Ok(md) => md,
+        Err(_) => {
+            // Last-resort fallback: old plain-text behavior.
+            let document = scraper::Html::parse_document(html);
+            compress_whitespace(&extract_text_content(&document))
+        }
+    };
+
+    let body_md = body_md.trim();
+    match title {
+        Some(t) if !t.trim().is_empty() && !body_md.starts_with("# ") => {
+            format!("# {}\n\n{}", t.trim(), body_md)
+        }
+        _ => body_md.to_string(),
+    }
+}
+
+/// Run readability extraction, returning `(title, main_content_html)`.
+/// Returns `None` if extraction fails, so the caller can fall back.
+fn extract_readable(html: &str, url: &str) -> Option<(String, String)> {
+    let url_opt = if url.starts_with("http://") || url.starts_with("https://") {
+        Some(url)
+    } else {
+        None
+    };
+    let mut readability = dom_smoothie::Readability::new(html, url_opt, None).ok()?;
+    let article = readability.parse().ok()?;
+    Some((article.title.clone(), article.content.to_string()))
 }
 
 fn extract_text_content(document: &scraper::Html) -> String {
@@ -2492,6 +2697,30 @@ mod tests {
         assert_eq!(posix_squote("a'b"), "'a'\\''b'");
     }
 
+    #[test]
+    fn html_to_markdown_preserves_structure() {
+        let html = r#"<html><head><title>Doc Title</title></head><body>
+            <article>
+              <h1>Heading One</h1>
+              <p>A paragraph with <a href="https://example.com">a link</a>.</p>
+              <ul><li>first</li><li>second</li></ul>
+              <pre><code>let x = 1;</code></pre>
+            </article></body></html>"#;
+        let md = html_to_markdown(html, "https://example.com/page");
+        // Structure survived the HTML→Markdown conversion.
+        assert!(md.contains("Heading One"), "missing heading: {md}");
+        assert!(md.contains("first") && md.contains("second"), "missing list: {md}");
+        assert!(md.contains("- ") || md.contains("* "), "list not markdown: {md}");
+        assert!(md.contains("example.com"), "missing link: {md}");
+    }
+
+    #[test]
+    fn html_to_markdown_falls_back_on_garbage() {
+        // Non-article content should still yield something, never panic.
+        let md = html_to_markdown("<p>just text</p>", "not-a-url");
+        assert!(md.contains("just text"), "got: {md}");
+    }
+
     fn make_ctx(cwd: std::path::PathBuf) -> ToolContext<'static> {
         ToolContext {
             cwd,
@@ -2521,6 +2750,124 @@ mod tests {
         let result = tool.execute(json!({"depends_on": []}), &ctx).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "No prompt provided.");
+    }
+
+    #[test]
+    fn parse_specs_single_prompt_defaults() {
+        let specs = parse_task_specs(&json!({ "prompt": "look at logs" }));
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].prompt, "look at logs");
+        assert_eq!(specs[0].model, None);
+        assert_eq!(specs[0].max_turns, 20);
+    }
+
+    #[test]
+    fn parse_specs_single_with_top_level_model_and_turns() {
+        let specs = parse_task_specs(&json!({
+            "prompt": "deep dive", "model": "o1", "max_turns": 40
+        }));
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].model.as_deref(), Some("o1"));
+        assert_eq!(specs[0].max_turns, 40);
+    }
+
+    #[test]
+    fn parse_specs_batch_heterogeneous_models() {
+        let specs = parse_task_specs(&json!({
+            "model": "gpt-4o-mini",
+            "max_turns": 15,
+            "tasks": [
+                { "prompt": "suspicious lead", "model": "gpt-4o", "max_turns": 30 },
+                { "prompt": "bulk check A" },
+                { "prompt": "bulk check B", "model": "  o1  " }
+            ]
+        }));
+        assert_eq!(specs.len(), 3);
+        assert_eq!(specs[0].model.as_deref(), Some("gpt-4o"));
+        assert_eq!(specs[0].max_turns, 30);
+        assert_eq!(specs[1].model.as_deref(), Some("gpt-4o-mini"));
+        assert_eq!(specs[1].max_turns, 15);
+        assert_eq!(specs[2].model.as_deref(), Some("o1"));
+        assert_eq!(specs[2].max_turns, 15);
+    }
+
+    #[test]
+    fn parse_specs_batch_skips_items_without_prompt() {
+        let specs = parse_task_specs(&json!({
+            "tasks": [ { "model": "gpt-4o" }, { "prompt": "real one" } ]
+        }));
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].prompt, "real one");
+    }
+
+    #[test]
+    fn parse_specs_empty_when_nothing_provided() {
+        assert!(parse_task_specs(&json!({})).is_empty());
+    }
+
+    #[test]
+    fn model_breakdown_groups_and_counts() {
+        let specs = parse_task_specs(&json!({
+            "model": "gpt-4o-mini",
+            "tasks": [
+                { "prompt": "a", "model": "gpt-4o" },
+                { "prompt": "b" },
+                { "prompt": "c" }
+            ]
+        }));
+        // 1×gpt-4o + 2×gpt-4o-mini (b,c fall back to top-level)
+        let bd = model_breakdown(&specs);
+        assert!(bd.contains("1×gpt-4o"), "got: {bd}");
+        assert!(bd.contains("2×gpt-4o-mini"), "got: {bd}");
+    }
+
+    #[test]
+    fn model_breakdown_default_when_no_override() {
+        let specs = parse_task_specs(&json!({ "tasks": [{ "prompt": "a" }, { "prompt": "b" }] }));
+        assert_eq!(model_breakdown(&specs), "2×default model");
+    }
+
+    #[test]
+    fn dispatch_header_singular_vs_plural() {
+        let one = parse_task_specs(&json!({ "prompt": "x" }));
+        assert!(dispatch_header(&one).contains("1 sub-agent "));
+        let many = parse_task_specs(&json!({ "tasks": [{ "prompt": "a" }, { "prompt": "b" }] }));
+        assert!(dispatch_header(&many).contains("2 sub-agents"));
+    }
+
+    #[test]
+    fn dispatch_footer_counts_failures() {
+        assert_eq!(dispatch_footer(11, 12), "── 12 sub-agents · 11 ✅ / 1 ❌ ──");
+        assert_eq!(dispatch_footer(3, 3), "── 3 sub-agents · 3 ✅ / 0 ❌ ──");
+        // saturating: ok never exceeds total
+        assert_eq!(dispatch_footer(5, 3), "── 3 sub-agents · 5 ✅ / 0 ❌ ──");
+    }
+
+    #[test]
+    fn cap_summary_passes_short_text_unchanged() {
+        assert_eq!(cap_summary("short result", 2000), "short result");
+        let exactly = "x".repeat(50);
+        assert_eq!(cap_summary(&exactly, 50), exactly);
+    }
+
+    #[test]
+    fn cap_summary_truncates_long_text_with_note() {
+        let long = "y".repeat(5000);
+        let out = cap_summary(&long, 100);
+        assert!(out.starts_with(&"y".repeat(100)));
+        assert!(out.contains("truncated to 100 chars"));
+        assert!(out.contains("sub-agent's own session"));
+        // body kept exactly `max` chars before the note
+        assert_eq!(out.chars().take_while(|c| *c == 'y').count(), 100);
+    }
+
+    #[test]
+    fn cap_summary_multibyte_does_not_panic() {
+        // 10 multi-byte chars, cap at 4 chars — must slice on char boundary.
+        let s = "配置项排查结论一二三四"; // 11 chars
+        let out = cap_summary(s, 4);
+        assert!(out.starts_with("配置项排"));
+        assert!(out.contains("truncated to 4 chars"));
     }
 
     #[tokio::test]

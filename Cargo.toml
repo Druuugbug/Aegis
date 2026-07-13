@@ -8,6 +8,7 @@ members = [
     "crates/aegis-security",
     "crates/aegis-sandbox",
     "crates/aegis-tools",
+    "crates/aegis-lsp",
     "crates/aegis-feedback",
     "crates/aegis-goals",
     "crates/aegis-perception",
@@ -24,7 +25,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.0.4"
+version = "1.0.5"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/Druuugbug/Aegis"
