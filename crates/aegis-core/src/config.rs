@@ -966,7 +966,11 @@ fn d_identity() -> String {
      memory) to get real work done — not just give advice.\n\n\
      Identity: when asked who or what you are, you are Aegis. Do not identify as \
      the underlying language model or its vendor. If a user specifically asks \
-     which model powers you, you may name it, but your identity is Aegis.\n\n\
+     which model powers you, you may name it, but your identity is Aegis. When \
+     asked to update or upgrade yourself, that means upgrading the aegis binary \
+     (see the Origin section for the repo, the crates.io package `aegis-agent`, \
+     and the install channels) — NOT the underlying model or its vendor, and \
+     never a similarly-named product.\n\n\
      Style: be concise and direct — lead with the answer, prefer doing over \
      explaining, and use tools to verify rather than guessing. If a command \
      fails ~twice with the same error, stop and diagnose the root cause instead \
@@ -2008,7 +2012,7 @@ mod tests {
         let cfg = Config::default();
         assert_eq!(cfg.model.default, "gpt-4o-mini");
         assert_eq!(cfg.model.provider, "openai");
-        assert_eq!(cfg.agent.max_iterations, 20);
+        assert_eq!(cfg.agent.max_iterations, 50);
         assert_eq!(cfg.agent.context_window, 50);
         assert!(cfg.security.command_approval);
         assert!(!cfg.security.yolo);
@@ -2072,7 +2076,7 @@ mod tests {
         writeln!(f, "[model]\ndefault = \"gpt-4o\"").unwrap();
         let cfg = Config::load(&path).unwrap();
         assert_eq!(cfg.model.default, "gpt-4o");
-        assert_eq!(cfg.agent.max_iterations, 20); // default
+        assert_eq!(cfg.agent.max_iterations, 50); // default
     }
 
     #[test]

@@ -795,6 +795,60 @@ pub(crate) async fn handle_slash_command(input: &str, agent: &mut Agent) -> Opti
             "Run `aegis setup` in a terminal for the interactive wizard.\n  Config file: {}\n  Or set via env: AEGIS_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY, AEGIS_MODEL, AEGIS_PROVIDER, AEGIS_BASE_URL.",
             config::config_path().display()
         ))),
+        "/update" => {
+            use crate::self_update::{perform_update, UpdateOptions, UpdateOutcome};
+            match perform_update(&UpdateOptions::default()).await {
+                Ok(UpdateOutcome::UpToDate { current }) => {
+                    Some(Some(format!("已是最新版本 (v{current})。")))
+                }
+                Ok(UpdateOutcome::NeedsCargo { hint }) => Some(Some(hint)),
+                Ok(UpdateOutcome::Updated { from, to, .. }) => {
+                    // Default is the SAFE path: the binary is replaced (verified
+                    // + backed up) but we do NOT re-exec — the running process
+                    // keeps working until the user restarts. Avoids the hot-swap
+                    // drawbacks (tearing down TTY / in-flight state). `/update
+                    // now` opts into a seamless hot-swap; `/update rollback`
+                    // reverts.
+                    Some(Some(format!(
+                        "✅ 已更新 aegis v{from} → {to}（已备份旧版本）。\n  • 输入 /quit 后重启即为新版；或用 `/update now` 立即热更新并续接本会话。\n  • 如新版异常，用 `/update rollback` 回滚。"
+                    )))
+                }
+                Err(e) => Some(Some(format!("更新失败：{e}"))),
+            }
+        }
+        s if s.starts_with("/update ") => {
+            use crate::self_update::{perform_update, restore_previous, UpdateOptions, UpdateOutcome};
+            let arg = s.strip_prefix("/update ").unwrap().trim();
+            match arg {
+                "rollback" => match restore_previous() {
+                    Ok(_) => Some(Some(
+                        "✅ 已回滚到上一个版本。输入 /quit 后重启生效。".to_string(),
+                    )),
+                    Err(e) => Some(Some(format!("回滚失败：{e}"))),
+                },
+                "now" => match perform_update(&UpdateOptions::default()).await {
+                    Ok(UpdateOutcome::UpToDate { current }) => {
+                        Some(Some(format!("已是最新版本 (v{current})。")))
+                    }
+                    Ok(UpdateOutcome::NeedsCargo { hint }) => Some(Some(hint)),
+                    Ok(UpdateOutcome::Updated { from, to, .. }) => {
+                        // Opt-in seamless hot-swap: re-exec into the freshly
+                        // replaced (already verified) binary; the session
+                        // resumes via swap-state. `hot_swap` only returns on
+                        // failure → fall back to a restart prompt.
+                        let sid = agent.session_id().to_string();
+                        crate::self_update::hot_swap(&sid, &from);
+                        Some(Some(format!(
+                            "✅ 已更新 aegis v{from} → {to}。热更新不可用，请退出并重新启动。"
+                        )))
+                    }
+                    Err(e) => Some(Some(format!("更新失败：{e}"))),
+                },
+                _ => Some(Some(
+                    "用法：/update（下载并替换，重启生效）· /update now（立即热更新续接）· /update rollback（回滚）".to_string(),
+                )),
+            }
+        }
         "/resume" => {
             let sessions = agent.recent_sessions(15);
             if sessions.is_empty() {

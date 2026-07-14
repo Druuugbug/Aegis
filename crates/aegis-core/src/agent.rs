@@ -409,6 +409,28 @@ fn build_system_prompt(
             .to_string(),
     );
 
+    // ── Origin & self-update (self-awareness) ──
+    // A real failure mode: asked "what are you / where's your source / how do I
+    // update you", the agent invented a vendor name. Inject verifiable
+    // provenance. `repo` + `version` come from Cargo at COMPILE time via env!():
+    // a private build shows the internal repo + 2.0.0, while the public export
+    // rewrites those Cargo fields to Druuugbug/Aegis + 1.0.x — one line, correct
+    // in both worlds, and the internal address never leaks into a public build.
+    // Package name, install channels and arch list are public facts, literal.
+    parts.push(format!(
+        "# Aegis Origin & Self-Update\n\
+         I am Aegis — an open-source (MIT) cognitive agent runtime written in Rust. I am NOT the underlying LLM/model that powers me, and NOT any similarly-named product. Source repo: {repo} (bugs → its GitHub Issues). This build's version: {ver}.\n\
+         On crates.io my package is `aegis-agent` — the bare name `aegis` was taken by an unrelated 2021 AEGIS crypto crate — but the installed executable is still `aegis`. For the same reason two published crates carry an `-agent` suffix: `aegis-agent-core` (this engine, `aegis-core` in-tree) and `aegis-agent-memory`.\n\
+         Install or upgrade me (upgrading = re-running any one channel):\n\
+         - `curl -fsSL https://raw.githubusercontent.com/Druuugbug/Aegis/main/install.sh | sh`  (prebuilt, fastest)\n\
+         - `cargo install aegis-agent`  (compile from source)\n\
+         - `cargo binstall aegis-agent`  (prebuilt via binstall)\n\
+         Prebuilt binaries are Linux-only (musl static — runs on any distro), arch x86_64 / aarch64, shipped as `aegis-linux-<arch>.tar.gz` on GitHub tag `vX.Y.Z` (crates.io publishes the same version). Other OSes must `cargo install`. One-shot upgrade: `aegis update` replaces the binary (verified before commit + previous kept for `--rollback`; new version next launch). In an interactive session, `/update` replaces the binary safely and asks you to restart, `/update now` hot-swaps and resumes in place, `/update rollback` reverts. If a user asks you (in chat) to \"update yourself\", run `/update` (or `aegis update`) — prefer the restart path; only hot-swap when they want it seamless. Source-level self-dev: `aegis evolve` / the `selfmod` tool.\n\
+         Inspect your own live state instead of guessing: binary path via `which aegis`; config dir and every artifact you write via `aegis doctor` / `aegis artifacts`. I am an 18-crate Rust workspace. When unsure who or where you are, run these — never invent a vendor/repo name.",
+        repo = env!("CARGO_PKG_REPOSITORY"),
+        ver = env!("CARGO_PKG_VERSION"),
+    ));
+
     // ── Stable prefix: tools, strategies, goals, memories, steer ──
     // (These rarely change within a session → maximizes KV cache hits)
 
@@ -489,10 +511,53 @@ fn build_system_prompt(
     parts.join("\n")
 }
 
-/// Load active user facts learned by aegis-learning and render them as a
-/// compact system-prompt section (AGENTS.md D26). Returns `None` when
-/// learning is disabled or no active facts exist. Failures degrade to
-/// `None` so a missing/empty store never breaks agent startup.
+/// Render the session-layer "Aegis Runtime" block (dimension 5 "brain" +
+/// dimension 11 "degraded state"). Pure/formatting-only so it is unit-testable
+/// without constructing a full `Agent`.
+///
+/// PII-safe by construction: it names the model/provider and config location,
+/// but never a channel `chat_id`/`user_id` (those would be egressed to the LLM
+/// API). Only surfaces a capability as degraded when it is actually off/broken,
+/// so the agent never claims a capability it currently lacks.
+fn render_runtime_context(
+    model: &crate::config::ModelConfig,
+    memory_present: bool,
+    memory_offline: bool,
+) -> String {
+    let ctx = model
+        .context_tokens
+        .unwrap_or_else(|| crate::config::model_context_window(&model.default));
+    let fallback = match &model.fallback_providers {
+        Some(f) if !f.is_empty() => format!(", {} fallback provider(s) configured", f.len()),
+        _ => String::new(),
+    };
+    let mut out = format!(
+        "# Aegis Runtime (this session)\n\
+         Version {ver} · brain: model `{model}` via provider `{provider}` (context window ~{ctx} tokens{fallback}).\n\
+         Config dir: {cfgdir}. Inspect your own live state with `aegis doctor` / `aegis artifacts` / `aegis usage` rather than guessing.",
+        ver = env!("CARGO_PKG_VERSION"),
+        model = model.default,
+        provider = model.provider,
+        ctx = ctx,
+        fallback = fallback,
+        cfgdir = crate::config::config_dir().display(),
+    );
+    let mut degraded: Vec<String> = Vec::new();
+    if !memory_present {
+        degraded.push("long-term memory: no backend configured".into());
+    } else if memory_offline {
+        degraded.push("long-term memory: OFFLINE this session (a backend call failed)".into());
+    }
+    if model.frugal {
+        degraded.push("frugal mode: on (smaller context, fewer recalled memories)".into());
+    }
+    if !degraded.is_empty() {
+        out.push_str(&format!("\n⚠️ Currently degraded: {}.", degraded.join("; ")));
+    }
+    out
+}
+
+
 fn load_user_facts(enabled: bool) -> Option<String> {
     if !enabled {
         return None;
@@ -2587,6 +2652,20 @@ impl Agent {
         }
     }
 
+    /// Session-layer self-knowledge for the system prompt: a few compact,
+    /// PII-free lines about *this* running instance (version, brain, config
+    /// location, degraded state). Complements the static Origin block.
+    ///
+    /// Runtime mode / channel / caller trust level are intentionally NOT
+    /// injected yet: the caller's `Identity` is not plumbed through the agent
+    /// loop (tool calls currently default to `LocalOwner`, see `identity: None`
+    /// in `run_tool`). Claiming a trust level the enforcement layer does not
+    /// actually apply would make self-knowledge lie — so those land together
+    /// with the identity plumbing.
+    fn runtime_self_context(&self) -> String {
+        render_runtime_context(&self.config.model, self.memory.is_some(), self.memory_offline)
+    }
+
     async fn generate_title(&self, user_input: &str, assistant_reply: &str) {
         let prompt = format!(
             "Generate a concise title (max 50 chars) for this conversation. Reply with ONLY the title, no quotes.\n\nUser: {}\nAssistant: {}",
@@ -2709,6 +2788,10 @@ impl Agent {
         } else {
             sys
         };
+        // Session-layer self-knowledge (dimension 5 "brain" + 11 "degraded
+        // state"): a few PII-free lines about THIS running instance. Appended
+        // last so the stable static prefix above stays KV-cache-friendly.
+        let sys = format!("{sys}\n\n{}", self.runtime_self_context());
         let mut msgs = vec![Message::system(sys)];
         // Inject summary if available
         if let Some(ref summary) = self.summary {
@@ -3482,7 +3565,7 @@ mod tests {
     fn test_build_system_prompt_minimal() {
         let prompt = build_system_prompt("identity", None, None, None, &[], None, None, None, None);
         assert!(prompt.contains("identity"));
-        assert!(prompt.contains("Environment"));
+        assert!(prompt.contains("Aegis Self-Knowledge"));
     }
 
     #[test]
@@ -3493,6 +3576,61 @@ mod tests {
         assert!(prompt.contains("spawn_task"));
         assert!(prompt.contains("parallel"));
         assert!(prompt.to_lowercase().contains("fan out"));
+    }
+
+    #[test]
+    fn test_build_system_prompt_has_self_provenance() {
+        // Regression guard for the 1.0.3 self-awareness failure: the agent must
+        // know its own repo, version, crates.io package, how to install/upgrade
+        // itself, and that it is NOT the underlying model.
+        let prompt = build_system_prompt("identity", None, None, None, &[], None, None, None, None);
+        // Repo + version are compile-time injected (build-agnostic assertions).
+        assert!(prompt.contains(env!("CARGO_PKG_REPOSITORY")));
+        assert!(prompt.contains(env!("CARGO_PKG_VERSION")));
+        // Public distribution facts.
+        assert!(prompt.contains("aegis-agent")); // crates.io package name
+        assert!(prompt.contains("cargo install aegis-agent"));
+        assert!(prompt.contains("install.sh"));
+        assert!(prompt.contains("aegis-linux-")); // prebuilt asset name
+        // Must disambiguate from the underlying model/vendor.
+        assert!(prompt.to_lowercase().contains("not the underlying"));
+    }
+
+    #[test]
+    fn test_render_runtime_context_names_brain_and_version() {
+        let mut model = crate::config::ModelConfig::default();
+        model.default = "gpt-4o-mini".into();
+        model.provider = "openai".into();
+        let out = render_runtime_context(&model, true, false);
+        assert!(out.contains("# Aegis Runtime (this session)"));
+        assert!(out.contains(env!("CARGO_PKG_VERSION")));
+        assert!(out.contains("gpt-4o-mini"));
+        assert!(out.contains("openai"));
+        assert!(out.contains("context window"));
+        // Healthy session → no degraded line.
+        assert!(!out.contains("Currently degraded"));
+    }
+
+    #[test]
+    fn test_render_runtime_context_surfaces_degraded_state() {
+        let model = crate::config::ModelConfig::default();
+        // No memory backend present → must be flagged as degraded.
+        let out = render_runtime_context(&model, false, false);
+        assert!(out.contains("Currently degraded"));
+        assert!(out.contains("long-term memory"));
+    }
+
+    #[test]
+    fn test_render_runtime_context_is_pii_free() {
+        // The block is egressed to the LLM API, so it must never carry a
+        // channel chat_id / user_id. It only ever gets model config, so this
+        // guards against a future edit leaking identifiers in here.
+        let model = crate::config::ModelConfig::default();
+        let out = render_runtime_context(&model, true, true);
+        assert!(!out.to_lowercase().contains("chat_id"));
+        assert!(!out.to_lowercase().contains("user_id"));
+        // Memory-offline path is reported.
+        assert!(out.contains("OFFLINE"));
     }
 
     #[test]
@@ -3555,7 +3693,7 @@ mod tests {
         let root = tmp.path();
         fs::create_dir(root.join(".git")).unwrap();
         fs::write(root.join("style.md"), "IMPORTED STYLE").unwrap();
-        fs::write(root.join("AEGIS.md"), "see @style.md for details").unwrap();
+        fs::write(root.join("AEGIS.md"), "intro\n@style.md\noutro").unwrap();
 
         let cfg = crate::config::ContextConfig::default();
         let ctx = load_project_context(root, &cfg).expect("found");
@@ -3743,13 +3881,13 @@ mod tests {
         assert!(prompt.contains("memories here"));
         assert!(prompt.contains("steering"));
         assert!(prompt.contains("USER FACTS"));
-        assert!(prompt.contains("Environment"));
+        assert!(prompt.contains("Aegis Self-Knowledge"));
     }
 
     #[test]
     fn test_build_system_prompt_empty_identity() {
         let prompt = build_system_prompt("", None, None, None, &[], None, None, None, None);
-        assert!(prompt.contains("Environment"));
+        assert!(prompt.contains("Aegis Self-Knowledge"));
     }
 
     // ── load_soul_md ──

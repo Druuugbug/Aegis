@@ -12,6 +12,7 @@ mod gateway;
 mod trash;
 mod snapshot;
 mod update;
+mod self_update;
 mod status;
 mod welcome;
 mod usage;
@@ -88,6 +89,9 @@ async fn main() -> Result<()> {
         Some(Commands::Worker { pool_size }) => worker::run(pool_size).await,
         Some(Commands::Serve { host, port }) => server::run(host, port).await,
         Some(Commands::Doctor) => commands::run_doctor(),
+        Some(Commands::Update { force, repo, rollback, yes: _ }) => {
+            self_update::run_update(force, repo, rollback).await
+        }
         Some(Commands::Status) => commands::run_status(),
         Some(Commands::Logs { lines }) => commands::run_logs(lines),
         Some(Commands::Usage {

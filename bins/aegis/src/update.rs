@@ -11,7 +11,7 @@ fn cache_path() -> PathBuf {
 }
 
 /// Compare dotted versions numerically: is `latest` newer than `current`?
-fn is_newer(latest: &str, current: &str) -> bool {
+pub(crate) fn is_newer(latest: &str, current: &str) -> bool {
     let parse = |s: &str| -> Vec<u64> {
         s.trim_start_matches('v')
             .split(|c: char| c == '.' || c == '-' || c == '+')
@@ -30,7 +30,7 @@ fn is_newer(latest: &str, current: &str) -> bool {
     false
 }
 
-async fn fetch_latest_tag(repo: &str) -> Option<String> {
+pub(crate) async fn fetch_latest_tag(repo: &str) -> Option<String> {
     let url = format!("https://api.github.com/repos/{repo}/releases/latest");
     let client = reqwest::Client::new();
     let resp = client

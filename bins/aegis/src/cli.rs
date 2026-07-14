@@ -64,6 +64,17 @@ pub enum Commands {
     },
     /// Check system health
     Doctor,
+    /// Update aegis to the latest release (replaces the binary; new version on next launch)
+    Update {
+        #[arg(long, help = "Reinstall the latest even if already up to date")]
+        force: bool,
+        #[arg(long, help = "Override the GitHub owner/repo to update from")]
+        repo: Option<String>,
+        #[arg(long, help = "Roll back to the binary from before the last update")]
+        rollback: bool,
+        #[arg(short = 'y', long, help = "Assume yes (no confirmation)")]
+        yes: bool,
+    },
     /// Show system status
     Status,
     /// Show recent logs

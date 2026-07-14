@@ -7,14 +7,14 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-aegis-types = { path = "../aegis-types", version = "1.0.5" }
-aegis-security = { path = "../aegis-security", version = "1.0.5" }
-aegis-sandbox = { path = "../aegis-sandbox", version = "1.0.5" }
-aegis-a2a = { path = "../aegis-a2a", version = "1.0.5" }
-aegis-memory = { path = "../aegis-memory", version = "1.0.5", package = "aegis-agent-memory" }
-aegis-record = { path = "../aegis-record", version = "1.0.5" }
-aegis-feedback = { path = "../aegis-feedback", version = "1.0.5" }
-aegis-lsp = { path = "../aegis-lsp", version = "1.0.5" }
+aegis-types = { path = "../aegis-types", version = "1.0.6" }
+aegis-security = { path = "../aegis-security", version = "1.0.6" }
+aegis-sandbox = { path = "../aegis-sandbox", version = "1.0.6" }
+aegis-a2a = { path = "../aegis-a2a", version = "1.0.6" }
+aegis-memory = { path = "../aegis-memory", version = "1.0.6", package = "aegis-agent-memory" }
+aegis-record = { path = "../aegis-record", version = "1.0.6" }
+aegis-feedback = { path = "../aegis-feedback", version = "1.0.6" }
+aegis-lsp = { path = "../aegis-lsp", version = "1.0.6" }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }

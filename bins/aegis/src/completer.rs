@@ -38,5 +38,6 @@ pub const SLASH_COMMANDS: &[(&str, &str)] = &[
     ("/verbose", "toggle verbose output"),
     ("/rollback", "restore a previous checkpoint"),
     ("/setup", "open the setup wizard"),
+    ("/update", "upgrade aegis: replace + restart (safe); /update now hot-swaps; /update rollback reverts"),
     ("/quit", "exit (also /exit)"),
 ];

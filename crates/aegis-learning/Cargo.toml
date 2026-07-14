@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-aegis-types = { path = "../aegis-types", version = "1.0.5" }
+aegis-types = { path = "../aegis-types", version = "1.0.6" }
 # async
 tokio = { workspace = true }
 tokio-util = { workspace = true }

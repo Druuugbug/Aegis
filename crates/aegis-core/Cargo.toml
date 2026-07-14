@@ -10,18 +10,18 @@ repository.workspace = true
 name = "aegis_core"
 
 [dependencies]
-aegis-security = { path = "../aegis-security", version = "1.0.5" }
-aegis-feedback = { path = "../aegis-feedback", version = "1.0.5" }
-aegis-goals = { path = "../aegis-goals", version = "1.0.5" }
-aegis-mcp = { path = "../aegis-mcp", version = "1.0.5" }
-aegis-tools = { path = "../aegis-tools", version = "1.0.5" }
-aegis-lsp = { path = "../aegis-lsp", version = "1.0.5" }
-aegis-types = { path = "../aegis-types", version = "1.0.5" }
-aegis-provider = { path = "../aegis-provider", version = "1.0.5" }
-aegis-record = { path = "../aegis-record", version = "1.0.5" }
-aegis-memory = { path = "../aegis-memory", version = "1.0.5", package = "aegis-agent-memory" }
-aegis-perception = { path = "../aegis-perception", version = "1.0.5" }
-aegis-learning = { path = "../aegis-learning", version = "1.0.5" }
+aegis-security = { path = "../aegis-security", version = "1.0.6" }
+aegis-feedback = { path = "../aegis-feedback", version = "1.0.6" }
+aegis-goals = { path = "../aegis-goals", version = "1.0.6" }
+aegis-mcp = { path = "../aegis-mcp", version = "1.0.6" }
+aegis-tools = { path = "../aegis-tools", version = "1.0.6" }
+aegis-lsp = { path = "../aegis-lsp", version = "1.0.6" }
+aegis-types = { path = "../aegis-types", version = "1.0.6" }
+aegis-provider = { path = "../aegis-provider", version = "1.0.6" }
+aegis-record = { path = "../aegis-record", version = "1.0.6" }
+aegis-memory = { path = "../aegis-memory", version = "1.0.6", package = "aegis-agent-memory" }
+aegis-perception = { path = "../aegis-perception", version = "1.0.6" }
+aegis-learning = { path = "../aegis-learning", version = "1.0.6" }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 async-trait = { workspace = true }
@@ -54,7 +54,7 @@ simploxide-client = { version = "=0.13.1", default-features = false, features = 
 
 [dev-dependencies]
 tempfile = "3"
-aegis-a2a = { path = "../aegis-a2a", version = "1.0.5" }
+aegis-a2a = { path = "../aegis-a2a", version = "1.0.6" }
 thiserror = { workspace = true }
 criterion = { workspace = true }
 
