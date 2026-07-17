@@ -154,7 +154,10 @@ impl Tool for DnsLookupTool {
         }
         // Reject obviously invalid input (no scheme, no path, no spaces).
         if host.contains("://") || host.contains('/') || host.contains(char::is_whitespace) {
-            return Ok("Error: provide a bare hostname (no scheme or path), e.g. 'example.com'".to_string());
+            return Ok(
+                "Error: provide a bare hostname (no scheme or path), e.g. 'example.com'"
+                    .to_string(),
+            );
         }
 
         // std resolution is blocking; run it off the async runtime.
@@ -175,9 +178,7 @@ impl Tool for DnsLookupTool {
         .map_err(|e| anyhow::anyhow!("dns_lookup task failed: {e}"))?;
 
         match ips {
-            Ok(list) if !list.is_empty() => {
-                Ok(format!("{host} resolves to:\n{}", list.join("\n")))
-            }
+            Ok(list) if !list.is_empty() => Ok(format!("{host} resolves to:\n{}", list.join("\n"))),
             Ok(_) => Ok(format!("{host}: no addresses found")),
             Err(e) => Ok(format!("{host}: resolution failed: {e}")),
         }

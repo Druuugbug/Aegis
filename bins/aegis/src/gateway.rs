@@ -25,6 +25,7 @@ use aegis_a2a::types::{
     AgentCapabilities, AgentCard, AgentSkill, Message, MessageRole, Part, Task, TaskCancelParams,
     TaskEvent, TaskGetParams, TaskSendParams, TaskState, TaskStatusInfo, SecurityScheme,
 };
+use aegis_core::aegis_tools::CheckpointManager;
 use aegis_core::agent::Agent;
 use aegis_core::channel::{build_session_key, Channel, ChatType, SessionIsolation, SessionSource};
 use aegis_core::config::Config;
@@ -68,6 +69,13 @@ pub struct ClarifyItem {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SteerPickerItem {
+    pub id: String,
+    pub text: String,
+    pub turns_left: Option<u32>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum AgentEvent {
     Tool { name: String, args: String },
@@ -87,6 +95,7 @@ pub enum AgentEvent {
     ClarifyBatch { questions: Vec<ClarifyItem> },
     /// Daemon → client: token usage after a turn (for the prompt gauge).
     Usage { used: u64, limit: u64 },
+    SteerList { items: Vec<SteerPickerItem> },
     Final { text: String },
     Error { text: String },
     End,
@@ -636,12 +645,29 @@ async fn run_inline_shell(cmd: &str, a: &mut Agent) -> String {
         "user-shell",
         &format!("The user ran a shell command in-session:\n$ {cmd}\n(status: {status}, took {secs:.1}s)\noutput:\n{ctx_body}"),
     );
+    aegis_security::AuditLog::new().log_action(
+        a.session_id(),
+        "ui:!cmd",
+        &format!("status={status};duration_ms={};output_bytes={}", start.elapsed().as_millis(), body.len()),
+    );
     // The user sees their own raw output (they typed the command).
     format!("$ {cmd}\n{}\n⏱ {secs:.1}s · {status} · {stamp}", body.trim_end())
 }
 
 async fn run_turn(a: &mut Agent, text: &str, is_cli: bool) -> Result<String> {
     let trimmed = text.trim();
+    if is_cli && trimmed == "/__aegis_steer_list" {
+        let items: Vec<SteerPickerItem> = a
+            .steer_list()
+            .iter()
+            .map(|inst| SteerPickerItem {
+                id: inst.id.clone(),
+                text: inst.text.clone(),
+                turns_left: inst.turns_left,
+            })
+            .collect();
+        return Ok(serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string()));
+    }
     // `/retry`: undo the last turn and re-run the last user message (a real
     // chat turn, so it streams via the session's callbacks).
     if is_cli && trimmed == "/retry" {
@@ -1693,6 +1719,7 @@ enum ClientMsg {
     Answer(String), // a reply to an approve/clarify prompt: {"answer": "..."}
     Cancel,         // stop the current turn: {"cancel": true}
     Status,         // runtime stats query: {"status": true}
+    SteerList,      // active steering instructions for local picker
 }
 
 /// Reads client lines forever (own task = no cancel-safety issues) and
@@ -1734,6 +1761,8 @@ async fn dispatch_client_line(raw: &str, tx: &mpsc::Sender<ClientMsg>) -> Result
             tx.send(ClientMsg::Cancel).await.map_err(|_| ())?;
         } else if v.get("status").and_then(|x| x.as_bool()) == Some(true) {
             tx.send(ClientMsg::Status).await.map_err(|_| ())?;
+        } else if v.get("steer_list").and_then(|x| x.as_bool()) == Some(true) {
+            tx.send(ClientMsg::SteerList).await.map_err(|_| ())?;
         } else if let Some(l) = v.get("line").and_then(|x| x.as_str()) {
             tx.send(ClientMsg::Line(l.to_string())).await.map_err(|_| ())?;
         } else if let Some(a) = v.get("answer").and_then(|x| x.as_str()) {
@@ -1743,6 +1772,50 @@ async fn dispatch_client_line(raw: &str, tx: &mpsc::Sender<ClientMsg>) -> Result
             tx.send(ClientMsg::Answer(json)).await.map_err(|_| ())?;
         }
     }
+    Ok(())
+}
+
+async fn write_steer_list_event(
+    tx: &mpsc::Sender<GatewayRequest>,
+    wh: &mut tokio::net::unix::OwnedWriteHalf,
+    chat_id: &str,
+) -> Result<()> {
+    let source = SessionSource {
+        platform: "cli".to_string(),
+        chat_type: ChatType::Private,
+        chat_id: chat_id.to_string(),
+        user_id: "local".to_string(),
+        thread_id: None,
+    };
+    let (ev_tx, mut ev_rx) = mpsc::unbounded_channel::<AgentEvent>();
+    let (_ans_tx, ans_rx) = std::sync::mpsc::channel::<String>();
+    if tx
+        .send(GatewayRequest {
+            source,
+            text: "/__aegis_steer_list".to_string(),
+            reply: Reply::Stream { events: ev_tx, answers: ans_rx },
+            cancel: CancellationToken::new(),
+        })
+        .await
+        .is_err()
+    {
+        return Ok(());
+    }
+
+    let mut items = Vec::new();
+    while let Some(event) = ev_rx.recv().await {
+        match event {
+            AgentEvent::Final { text } => {
+                items = serde_json::from_str::<Vec<SteerPickerItem>>(&text).unwrap_or_default();
+            }
+            AgentEvent::End => break,
+            _ => {}
+        }
+    }
+    let event = AgentEvent::SteerList { items };
+    let json = serde_json::to_string(&event).unwrap_or_default();
+    wh.write_all(json.as_bytes()).await?;
+    wh.write_all(b"\n").await?;
     Ok(())
 }
 
@@ -1811,8 +1884,15 @@ async fn handle_client(stream: UnixStream, tx: mpsc::Sender<GatewayRequest>, sta
                     let _ = wh.write_all(b"\n").await;
                     continue;
                 }
+                Some(ClientMsg::SteerList) => {
+                    let _ = write_steer_list_event(&tx, &mut wh, &chat_id).await;
+                    continue;
+                }
                 Some(_) => continue,
-                None => return Ok(()), // client gone
+                None => {
+                    tracing::info!(session = %chat_id, "cli client disconnected before request");
+                    return Ok(());
+                }
             }
         };
 
@@ -1855,6 +1935,7 @@ async fn handle_client(stream: UnixStream, tx: mpsc::Sender<GatewayRequest>, sta
                         if wh.write_all(json.as_bytes()).await.is_err()
                             || wh.write_all(b"\n").await.is_err()
                         {
+                            tracing::info!(session = %chat_id, "cli client disconnected while streaming event");
                             return Ok(());
                         }
                         if is_end {
@@ -1880,7 +1961,11 @@ async fn handle_client(stream: UnixStream, tx: mpsc::Sender<GatewayRequest>, sta
                         let _ = wh.write_all(b"\n").await;
                     }
                     Some(ClientMsg::Line(_)) => {} // client shouldn't send a new line mid-turn
-                    None => return Ok(()),
+                    Some(ClientMsg::SteerList) => {}
+                    None => {
+                        tracing::info!(session = %chat_id, "cli client disconnected during turn");
+                        return Ok(());
+                    }
                 },
             }
         }
@@ -1925,6 +2010,10 @@ fn acquire_single_instance_lock() -> Option<std::fs::File> {
 pub async fn run_daemon(mut config: Config) -> Result<()> {
     // Record the build this daemon was launched from (for stale-daemon detection).
     let _ = DAEMON_BUILD_ID.set(exe_build_id());
+    // Let terminal tools in this daemon recognize commands that would kill the
+    // gateway process currently serving the CLI connection.
+    std::env::set_var("AEGIS_GATEWAY_PROTECT", "1");
+    std::env::set_var("AEGIS_GATEWAY_PID", std::process::id().to_string());
     // The daemon defaults to YOLO (skip routine approval nags). The
     // catastrophic-command backstop still confirms dangerous terminal commands
     // (unless `reckless`); deny/readonly rules also still apply.
@@ -2271,24 +2360,692 @@ async fn ensure_daemon(path: &Path) -> Result<()> {
 /// A bare `/` opens an arrow-key command menu; returns the chosen command line.
 fn slash_menu() -> Option<String> {
     use crate::completer::SLASH_COMMANDS;
-    let items: Vec<String> = SLASH_COMMANDS
+    let commands: Vec<_> = SLASH_COMMANDS
         .iter()
-        .map(|(c, d)| format!("{:<12} {}", c.trim(), d))
+        .filter(|spec| spec.visible_in_help)
+        .collect();
+    let items: Vec<String> = commands
+        .iter()
+        .map(|spec| format!("{:<12} {}", spec.name.trim(), spec.help_description()))
         .collect();
     let idx = crate::select::pick("命令", &items)?;
-    Some(SLASH_COMMANDS[idx].0.to_string())
+    Some(commands[idx].name.to_string())
 }
 
-/// Filter the slash-command table for the in-TUI command palette. With a
-/// `/prefix` typed, narrows to matching commands; otherwise lists them all.
-fn filter_cmds(input: &str) -> Vec<(&'static str, &'static str)> {
-    let it = input.trim();
-    let it = if it.starts_with('/') { it } else { "" };
+#[derive(Clone)]
+struct TuiCompletion {
+    label: String,
+    desc: String,
+    value: String,
+    replace_start: usize,
+    replace_end: usize,
+    submit_on_enter: bool,
+}
+
+fn byte_pos_at_char(s: &str, char_pos: usize) -> usize {
+    s.char_indices()
+        .nth(char_pos)
+        .map(|(i, _)| i)
+        .unwrap_or_else(|| s.len())
+}
+
+fn compact_session_text(raw: &str, max_chars: usize) -> Option<String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let lower = raw.to_ascii_lowercase();
+    let stripped = if lower.starts_with("<think") {
+        match lower.find("</think>") {
+            Some(end) => raw[end + "</think>".len()..].trim(),
+            None => "",
+        }
+    } else {
+        raw
+    };
+    if stripped.is_empty() || stripped.starts_with("<think") {
+        return None;
+    }
+
+    let mut compact = stripped.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.chars().count() > max_chars {
+        compact = compact.chars().take(max_chars.saturating_sub(1)).collect::<String>();
+        compact.push('…');
+    }
+    Some(compact)
+}
+
+fn compact_session_title(title: Option<String>) -> String {
+    title
+        .as_deref()
+        .and_then(|raw| compact_session_text(raw, 54))
+        .unwrap_or_else(|| "(untitled)".to_string())
+}
+
+fn session_preview_title(
+    store: &aegis_record::SessionStore,
+    id: &str,
+    title: Option<String>,
+) -> String {
+    let title = compact_session_title(title);
+    if title != "(untitled)" {
+        return title;
+    }
+
+    store
+        .get_messages(id)
+        .ok()
+        .and_then(|messages| {
+            messages
+                .iter()
+                .filter(|m| m.role == "user")
+                .filter_map(|m| m.content.as_deref())
+                .find_map(|content| compact_session_text(content, 54))
+                .or_else(|| {
+                    messages
+                        .iter()
+                        .filter_map(|m| m.content.as_deref())
+                        .find_map(|content| compact_session_text(content, 54))
+                })
+        })
+        .unwrap_or_else(|| "(untitled)".to_string())
+}
+
+fn compact_started_at(started: &str) -> String {
+    started
+        .split_once('.')
+        .map(|(head, _)| head)
+        .unwrap_or(started)
+        .replace('T', " ")
+}
+
+fn slash_command_completions(input: &str, end: usize, task_running: bool) -> Vec<TuiCompletion> {
+    let prefix = &input[..end];
+    if !prefix.starts_with('/') || prefix.chars().any(char::is_whitespace) {
+        return Vec::new();
+    }
     crate::completer::SLASH_COMMANDS
         .iter()
-        .filter(|(c, _)| it.is_empty() || c.trim_end().starts_with(it))
-        .cloned()
+        .filter(|spec| spec.matches_prefix(prefix))
+        .map(|spec| TuiCompletion {
+            label: spec.name.trim_end().to_string(),
+            desc: spec.completion_description(task_running),
+            value: spec.name.to_string(),
+            replace_start: 0,
+            replace_end: end,
+            submit_on_enter: false,
+        })
         .collect()
+}
+
+fn resume_session_completions(input: &str, cursor: usize) -> Vec<TuiCompletion> {
+    let end = byte_pos_at_char(input, cursor);
+    let prefix = input[..end].trim_end();
+    if prefix != "/resume" && !prefix.starts_with("/resume ") {
+        return Vec::new();
+    }
+    let query = prefix.strip_prefix("/resume").unwrap_or("").trim().to_ascii_lowercase();
+    let store = match crate::provider::open_store() {
+        Ok(store) => store,
+        Err(_) => return Vec::new(),
+    };
+    let rows = match store.list_sessions(50) {
+        Ok(rows) => rows,
+        Err(_) => return Vec::new(),
+    };
+    rows.into_iter()
+        .filter(|s| s.message_count > 0)
+        .filter_map(|s| {
+            let title = session_preview_title(&store, &s.id, s.title);
+            let hay = format!("{} {}", s.id, title).to_ascii_lowercase();
+            if !query.is_empty() && !hay.contains(&query) {
+                return None;
+            }
+            let short = &s.id[..s.id.len().min(19)];
+            Some(TuiCompletion {
+                label: format!("{}  {}", short, title),
+                desc: format!("{} msgs · {}", s.message_count, compact_started_at(&s.started_at)),
+                value: format!("/resume {}", s.id),
+                replace_start: 0,
+                replace_end: input.len(),
+                submit_on_enter: true,
+            })
+        })
+        .take(15)
+        .collect()
+}
+
+fn rollback_checkpoint_completions(input: &str, cursor: usize) -> Vec<TuiCompletion> {
+    let end = byte_pos_at_char(input, cursor);
+    let prefix = input[..end].trim_end();
+    if prefix != "/rollback" && !prefix.starts_with("/rollback ") {
+        return Vec::new();
+    }
+    let query = prefix
+        .strip_prefix("/rollback")
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    let entries = match CheckpointManager::list() {
+        Ok(entries) => entries,
+        Err(_) => return Vec::new(),
+    };
+
+    entries
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, (name, path))| {
+            let number = i + 1;
+            let hay = format!("{number} {name} {path}").to_ascii_lowercase();
+            if !query.is_empty() && !hay.contains(&query) {
+                return None;
+            }
+            Some(TuiCompletion {
+                label: format!("{number}. {name}"),
+                desc: path,
+                value: format!("/rollback {number}"),
+                replace_start: 0,
+                replace_end: input.len(),
+                submit_on_enter: false,
+            })
+        })
+        .take(20)
+        .collect()
+}
+
+fn memory_completions(input: &str, cursor: usize) -> Vec<TuiCompletion> {
+    let end = byte_pos_at_char(input, cursor);
+    let prefix = input[..end].trim_end();
+    if prefix != "/memory" && !prefix.starts_with("/memory ") {
+        return Vec::new();
+    }
+    let rest = prefix.strip_prefix("/memory").unwrap_or("").trim();
+    let (action, query) = if let Some(query) = rest.strip_prefix("remove ") {
+        ("remove", query.trim())
+    } else if let Some(query) = rest.strip_prefix("rm ") {
+        ("remove", query.trim())
+    } else if rest == "remove" || rest == "rm" {
+        ("remove", "")
+    } else if let Some(query) = rest.strip_prefix("show ") {
+        ("show", query.trim())
+    } else {
+        ("show", rest)
+    };
+    let query = query.to_ascii_lowercase();
+    let path = aegis_core::config::config_dir().join("memory/graph.json");
+    let graph = aegis_memory::MemoryGraph::load(&path);
+    let mut entries: Vec<_> = graph
+        .list_all()
+        .into_iter()
+        .filter(|entry| entry.active && !entry.is_expired())
+        .collect();
+    entries.sort_by(|a, b| {
+        b.effective_confidence()
+            .partial_cmp(&a.effective_confidence())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    entries
+        .into_iter()
+        .filter_map(|entry| {
+            let hay = format!("{} {} {}", entry.id, entry.content, entry.tags.join(" "))
+                .to_ascii_lowercase();
+            if !query.is_empty() && !hay.contains(&query) {
+                return None;
+            }
+            let preview = compact_session_text(&entry.content, 54)
+                .unwrap_or_else(|| "(empty memory)".to_string());
+            let short = &entry.id[..entry.id.len().min(16)];
+            let value = if action == "remove" {
+                format!("/memory remove {}", entry.id)
+            } else {
+                format!("/memory show {}", entry.id)
+            };
+            let desc = if action == "remove" {
+                format!("remove · {:.2} · {short}", entry.effective_confidence())
+            } else {
+                format!("{:.2} · {short}", entry.effective_confidence())
+            };
+            Some(TuiCompletion {
+                label: preview,
+                desc,
+                value,
+                replace_start: 0,
+                replace_end: input.len(),
+                submit_on_enter: true,
+            })
+        })
+        .take(20)
+        .collect()
+}
+
+fn server_completions(input: &str, cursor: usize) -> Vec<TuiCompletion> {
+    let end = byte_pos_at_char(input, cursor);
+    let prefix = input[..end].trim_end();
+    if prefix != "/server" && !prefix.starts_with("/server ") {
+        return Vec::new();
+    }
+    let query = prefix
+        .strip_prefix("/server")
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    aegis_tools::remotes::list_names()
+        .into_iter()
+        .filter_map(|name| {
+            if !query.is_empty() && !name.to_ascii_lowercase().contains(&query) {
+                return None;
+            }
+            Some(TuiCompletion {
+                label: name.clone(),
+                desc: "saved server handle".to_string(),
+                value: format!("/server remove {name}"),
+                replace_start: 0,
+                replace_end: input.len(),
+                submit_on_enter: false,
+            })
+        })
+        .take(20)
+        .collect()
+}
+
+fn secret_completions(input: &str, cursor: usize) -> Vec<TuiCompletion> {
+    let end = byte_pos_at_char(input, cursor);
+    let prefix = input[..end].trim_end();
+    if prefix != "/secret" && !prefix.starts_with("/secret ") {
+        return Vec::new();
+    }
+    let rest = prefix.strip_prefix("/secret").unwrap_or("").trim();
+    let (action, query) = if let Some(query) = rest.strip_prefix("remove ") {
+        ("remove", query.trim())
+    } else if let Some(query) = rest.strip_prefix("rm ") {
+        ("remove", query.trim())
+    } else if rest == "remove" || rest == "rm" {
+        ("remove", "")
+    } else if let Some(query) = rest.strip_prefix("reveal ") {
+        ("reveal", query.trim())
+    } else {
+        ("reveal", rest)
+    };
+    let query = query.to_ascii_lowercase();
+    let cfg = Config::load(&aegis_core::config::config_path()).unwrap_or_default();
+    let vault = aegis_security::SecretVault::new(cfg.security.secret_vault, false);
+    vault
+        .names()
+        .into_iter()
+        .filter_map(|name| {
+            let masked = vault.masked(&name).unwrap_or_else(|| "masked".to_string());
+            let hay = format!("{name} {masked}").to_ascii_lowercase();
+            if !query.is_empty() && !hay.contains(&query) {
+                return None;
+            }
+            let value = if action == "remove" {
+                format!("/secret remove {name}")
+            } else {
+                format!("/secret reveal {name}")
+            };
+            let desc = if action == "remove" {
+                format!("remove · {masked}")
+            } else {
+                masked
+            };
+            Some(TuiCompletion {
+                label: name.clone(),
+                desc,
+                value,
+                replace_start: 0,
+                replace_end: input.len(),
+                submit_on_enter: false,
+            })
+        })
+        .take(20)
+        .collect()
+}
+
+fn steer_completions(input: &str, cursor: usize, items: &[SteerPickerItem]) -> Vec<TuiCompletion> {
+    let end = byte_pos_at_char(input, cursor);
+    let prefix = input[..end].trim_end();
+    if prefix != "/steer" && !prefix.starts_with("/steer ") {
+        return Vec::new();
+    }
+    let rest = prefix.strip_prefix("/steer").unwrap_or("").trim();
+    if rest == "clear" {
+        if items.is_empty() {
+            return Vec::new();
+        }
+        return vec![TuiCompletion {
+            label: "clear all steering".to_string(),
+            desc: format!("{} instruction(s)", items.len()),
+            value: "/steer clear".to_string(),
+            replace_start: 0,
+            replace_end: input.len(),
+            submit_on_enter: true,
+        }];
+    }
+    let (action, query) = if let Some(query) = rest.strip_prefix("remove ") {
+        ("remove", query.trim())
+    } else if let Some(query) = rest.strip_prefix("rm ") {
+        ("remove", query.trim())
+    } else if rest == "remove" || rest == "rm" {
+        ("remove", "")
+    } else if let Some(query) = rest.strip_prefix("show ") {
+        ("show", query.trim())
+    } else {
+        ("show", rest)
+    };
+    let query = query.to_ascii_lowercase();
+    items
+        .iter()
+        .filter_map(|item| {
+            let hay = format!("{} {}", item.id, item.text).to_ascii_lowercase();
+            if !query.is_empty() && !hay.contains(&query) {
+                return None;
+            }
+            let preview = compact_session_text(&item.text, 54)
+                .unwrap_or_else(|| "(empty steer)".to_string());
+            let dur = match item.turns_left {
+                None => "permanent".to_string(),
+                Some(1) => "1 turn left".to_string(),
+                Some(n) => format!("{n} turns left"),
+            };
+            let short = &item.id[..item.id.len().min(8)];
+            let value = if action == "remove" {
+                format!("/steer remove {}", item.id)
+            } else {
+                format!("/steer show {}", item.id)
+            };
+            let desc = if action == "remove" {
+                format!("remove · {dur} · {short}")
+            } else {
+                format!("{dur} · {short}")
+            };
+            Some(TuiCompletion {
+                label: preview,
+                desc,
+                value,
+                replace_start: 0,
+                replace_end: input.len(),
+                submit_on_enter: true,
+            })
+        })
+        .take(20)
+        .collect()
+}
+
+async fn fetch_steer_items(
+    reader: &mut BufReader<tokio::net::unix::OwnedReadHalf>,
+    wh: &mut tokio::net::unix::OwnedWriteHalf,
+) -> Vec<SteerPickerItem> {
+    let req = serde_json::json!({ "steer_list": true }).to_string();
+    if wh.write_all(req.as_bytes()).await.is_err() || wh.write_all(b"\n").await.is_err() {
+        return Vec::new();
+    }
+    let mut line = String::new();
+    match tokio::time::timeout(Duration::from_secs(2), reader.read_line(&mut line)).await {
+        Ok(Ok(n)) if n > 0 => match serde_json::from_str::<AgentEvent>(line.trim()) {
+            Ok(AgentEvent::SteerList { items }) => items,
+            _ => Vec::new(),
+        },
+        _ => Vec::new(),
+    }
+}
+
+fn path_completions(input: &str, cursor: usize) -> Vec<TuiCompletion> {
+    let end = byte_pos_at_char(input, cursor);
+    let before = &input[..end];
+    let start = before
+        .char_indices()
+        .rev()
+        .find(|(_, ch)| ch.is_whitespace() || *ch == '!')
+        .map(|(i, ch)| i + ch.len_utf8())
+        .unwrap_or(0);
+    let token = &input[start..end];
+    if token.is_empty() || !(token.starts_with('.') || token.starts_with('~') || token.contains('/')) {
+        return Vec::new();
+    }
+
+    let (dir_part, name_prefix) = match token.rsplit_once('/') {
+        Some((dir, name)) => (if dir.is_empty() { "/" } else { dir }, name),
+        None => (".", token),
+    };
+    let read_dir = if dir_part == "~" {
+        std::env::var_os("HOME").map(PathBuf::from)
+    } else if let Some(rest) = dir_part.strip_prefix("~/") {
+        std::env::var_os("HOME").map(|h| PathBuf::from(h).join(rest))
+    } else {
+        Some(PathBuf::from(dir_part))
+    };
+    let Some(read_dir) = read_dir else { return Vec::new(); };
+    let entries = match std::fs::read_dir(read_dir) {
+        Ok(entries) => entries,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut out = Vec::new();
+    for entry in entries.flatten().take(80) {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.starts_with(name_prefix) {
+            continue;
+        }
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        let suffix = if is_dir { "/" } else { "" };
+        let completed = match token.rsplit_once('/') {
+            Some((dir, _)) => format!("{dir}/{name}{suffix}"),
+            None => format!("{name}{suffix}"),
+        };
+        out.push(TuiCompletion {
+            label: format!("{name}{suffix}"),
+            desc: if is_dir { "dir".to_string() } else { "file".to_string() },
+            value: completed,
+            replace_start: start,
+            replace_end: end,
+            submit_on_enter: false,
+        });
+        if out.len() >= 20 { break; }
+    }
+    out.sort_by(|a, b| a.label.cmp(&b.label));
+    out
+}
+
+fn mention_token_bounds(input: &str, cursor: usize) -> Option<(usize, usize, String)> {
+    let end = byte_pos_at_char(input, cursor);
+    let before = &input[..end];
+    let start = before
+        .char_indices()
+        .rev()
+        .find(|(_, ch)| ch.is_whitespace())
+        .map(|(i, ch)| i + ch.len_utf8())
+        .unwrap_or(0);
+    let token = &input[start..end];
+    let path = token.strip_prefix('@')?;
+    if path.contains('@') {
+        return None;
+    }
+    Some((start, end, path.to_string()))
+}
+
+fn mention_token_active(input: &str, cursor: usize) -> bool {
+    mention_token_bounds(input, cursor).is_some()
+}
+
+fn mention_path_is_sensitive(path: &Path) -> bool {
+    path.components().any(|component| {
+        let name = component.as_os_str().to_string_lossy();
+        matches!(
+            name.as_ref(),
+            ".git" | ".env" | ".npmrc" | ".netrc" | ".git-credentials"
+        )
+    })
+}
+
+fn mention_completions(input: &str, cursor: usize) -> Vec<TuiCompletion> {
+    let Some((start, end, token)) = mention_token_bounds(input, cursor) else {
+        return Vec::new();
+    };
+
+    if token.starts_with('/') || token.starts_with('~') {
+        return Vec::new();
+    }
+    let (dir_part, name_prefix) = match token.rsplit_once('/') {
+        Some((dir, name)) => (dir, name),
+        None => (".", token.as_str()),
+    };
+    let read_dir = Some(PathBuf::from(dir_part));
+    let Some(read_dir) = read_dir else { return Vec::new(); };
+    if mention_path_is_sensitive(&read_dir) {
+        return Vec::new();
+    }
+    let entries = match std::fs::read_dir(read_dir) {
+        Ok(entries) => entries,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut out = Vec::new();
+    for entry in entries.flatten().take(80) {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.starts_with(name_prefix) {
+            continue;
+        }
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        let suffix = if is_dir { "/" } else { "" };
+        let completed_path = match token.rsplit_once('/') {
+            Some((dir, _)) => format!("{dir}/{name}{suffix}"),
+            None => format!("{name}{suffix}"),
+        };
+        if mention_path_is_sensitive(Path::new(&completed_path)) {
+            continue;
+        }
+        out.push(TuiCompletion {
+            label: format!("{name}{suffix}"),
+            desc: if is_dir { "file mention dir".to_string() } else { "file mention".to_string() },
+            value: format!("@{completed_path}"),
+            replace_start: start,
+            replace_end: end,
+            submit_on_enter: false,
+        });
+        if out.len() >= 20 {
+            break;
+        }
+    }
+    out.sort_by(|a, b| a.label.cmp(&b.label));
+    out
+}
+
+fn shell_command_completions(input: &str, cursor: usize) -> Vec<TuiCompletion> {
+    if !input.starts_with('!') {
+        return Vec::new();
+    }
+    let end = byte_pos_at_char(input, cursor);
+    if end <= 1 {
+        return Vec::new();
+    }
+
+    let after_bang = &input[1..end];
+    let leading_ws = after_bang.len().saturating_sub(after_bang.trim_start().len());
+    let token_start = 1 + leading_ws;
+    let command_part = &input[token_start..end];
+    if command_part.is_empty() || command_part.chars().any(char::is_whitespace) {
+        return Vec::new();
+    }
+    if command_part.contains('/') || command_part.starts_with('.') || command_part.starts_with('~') {
+        return path_completions(input, cursor);
+    }
+
+    let Some(path_var) = std::env::var_os("PATH") else {
+        return Vec::new();
+    };
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out = Vec::new();
+    for dir in std::env::split_paths(&path_var) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !name.starts_with(command_part) || !seen.insert(name.clone()) {
+                continue;
+            }
+            out.push(TuiCompletion {
+                label: name.clone(),
+                desc: "command".to_string(),
+                value: format!("{name} "),
+                replace_start: token_start,
+                replace_end: end,
+                submit_on_enter: false,
+            });
+            if out.len() >= 20 {
+                break;
+            }
+        }
+        if out.len() >= 20 {
+            break;
+        }
+    }
+    out
+}
+
+fn completion_items(
+    input: &str,
+    cursor: usize,
+    include_paths: bool,
+    task_running: bool,
+) -> Vec<TuiCompletion> {
+    let end = byte_pos_at_char(input, cursor);
+    let commands = slash_command_completions(input, end, task_running);
+    if !commands.is_empty() {
+        return commands;
+    }
+    let arguments = crate::completer::slash_argument_completions(&input[..end]);
+    if !arguments.is_empty() {
+        return arguments
+            .into_iter()
+            .map(|item| TuiCompletion {
+                label: item.value.clone(),
+                desc: item.description,
+                value: item.value,
+                replace_start: 0,
+                replace_end: end,
+                submit_on_enter: false,
+            })
+            .collect();
+    }
+    if include_paths {
+        if input.starts_with('!') {
+            let shell = shell_command_completions(input, cursor);
+            if !shell.is_empty() {
+                return shell;
+            }
+            return path_completions(input, cursor);
+        }
+        let mentions = mention_completions(input, cursor);
+        if !mentions.is_empty() {
+            return mentions;
+        }
+        return path_completions(input, cursor);
+    }
+    if !input.starts_with('!') {
+        let mentions = mention_completions(input, cursor);
+        if !mentions.is_empty() || mention_token_active(input, cursor) {
+            return mentions;
+        }
+    }
+    Vec::new()
+}
+
+fn apply_completion(input: &mut String, cursor: &mut usize, item: &TuiCompletion) {
+    input.replace_range(item.replace_start..item.replace_end, &item.value);
+    *cursor = input[..item.replace_start].chars().count() + item.value.chars().count();
+}
+
+fn common_completion_prefix(items: &[TuiCompletion]) -> Option<String> {
+    let first = items.first()?.value.clone();
+    let mut prefix = first;
+    for item in &items[1..] {
+        while !item.value.starts_with(&prefix) {
+            prefix.pop()?;
+        }
+    }
+    Some(prefix)
 }
 
 /// Blocking readline loop (own thread) with the full interactive UX: rich
@@ -2491,6 +3248,106 @@ fn read_ppid(pid: u32) -> Option<u32> {
     ppid_str.parse().ok()
 }
 
+
+
+fn search_result_completions(input: &str, cursor: usize) -> Vec<TuiCompletion> {
+    let end = byte_pos_at_char(input, cursor);
+    let prefix = input[..end].trim_end();
+    let query = prefix.strip_prefix("/search ").unwrap_or("").trim();
+    if query.is_empty() {
+        return Vec::new();
+    }
+    let store = match crate::provider::open_store() {
+        Ok(store) => store,
+        Err(_) => return Vec::new(),
+    };
+    let results = match store.search(query, 20) {
+        Ok(results) => results,
+        Err(_) => return Vec::new(),
+    };
+    results
+        .into_iter()
+        .map(|r| {
+            let snippet = r.snippet.replace("
+", " ");
+            let label = compact_session_text(&snippet, 70).unwrap_or_else(|| "(empty match)".to_string());
+            let short = &r.session_id[..r.session_id.len().min(15)];
+            TuiCompletion {
+                label,
+                desc: format!("{} · {short}", r.role),
+                value: format!("/resume {}", r.session_id),
+                replace_start: 0,
+                replace_end: input.len(),
+                submit_on_enter: true,
+            }
+        })
+        .collect()
+}
+
+fn history_completions(input: &str, cursor: usize, history: &[String]) -> Vec<TuiCompletion> {
+    let end = byte_pos_at_char(input, cursor);
+    let query = input[..end].trim().to_ascii_lowercase();
+    let mut seen = std::collections::HashSet::new();
+    history
+        .iter()
+        .rev()
+        .filter_map(|entry| {
+            let compact = entry.split_whitespace().collect::<Vec<_>>().join(" ");
+            if compact.is_empty() || !seen.insert(compact.clone()) {
+                return None;
+            }
+            if !query.is_empty() && !compact.to_ascii_lowercase().contains(&query) {
+                return None;
+            }
+            Some(TuiCompletion {
+                label: compact_session_text(&compact, 64).unwrap_or_else(|| compact.clone()),
+                desc: "history".to_string(),
+                value: entry.clone(),
+                replace_start: 0,
+                replace_end: input.len(),
+                submit_on_enter: false,
+            })
+        })
+        .take(20)
+        .collect()
+}
+
+fn queue_remove_completions(
+    input: &str,
+    cursor: usize,
+    queue: &VecDeque<String>,
+) -> Vec<TuiCompletion> {
+    let end = byte_pos_at_char(input, cursor);
+    let prefix = input[..end].trim_end();
+    let query = prefix
+        .strip_prefix("/queue remove")
+        .or_else(|| prefix.strip_prefix("/queue rm"))
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    queue
+        .iter()
+        .enumerate()
+        .filter_map(|(i, item)| {
+            let number = i + 1;
+            let preview = compact_session_text(item, 64).unwrap_or_else(|| "(empty queued item)".to_string());
+            let hay = format!("{number} {preview}").to_ascii_lowercase();
+            if !query.is_empty() && !hay.contains(&query) {
+                return None;
+            }
+            Some(TuiCompletion {
+                label: format!("{number}. {preview}"),
+                desc: "queued instruction".to_string(),
+                value: format!("/queue remove {number}"),
+                replace_start: 0,
+                replace_end: input.len(),
+                submit_on_enter: true,
+            })
+        })
+        .take(20)
+        .collect()
+}
+
 /// Remove one queued instruction by its 1-based position (as shown by
 /// `/queue`). Returns a status message. Other entries keep their order.
 fn queue_remove(queue: &mut VecDeque<String>, arg: &str) -> String {
@@ -2502,6 +3359,20 @@ fn queue_remove(queue: &mut VecDeque<String>, arg: &str) -> String {
         }
         _ => format!("usage: /queue remove <1..{}>", queue.len().max(1)),
     }
+}
+
+fn render_expand_output(last_tool_output: &str) -> String {
+    let expanded = aegis_tools::output_buffer::read_receipt_full_output(last_tool_output)
+        .unwrap_or_else(|| last_tool_output.to_string());
+    crate::markdown::render(&expanded)
+}
+
+fn print_gateway_disconnect_guidance(state: &str) {
+    eprintln!("gateway connection {state}.");
+    eprintln!("next steps:");
+    eprintln!("  aegis gateway status");
+    eprintln!("  aegis logs --lines 80");
+    eprintln!("  aegis gateway restart");
 }
 
 /// Bare `aegis`: attach the interactive CLI to the resident gateway, starting
@@ -2555,6 +3426,7 @@ pub async fn run_cli_client() -> Result<()> {
     // events to End before the next), queueing anything typed mid-turn and
     // running it FIFO afterwards.
     let mut queue: VecDeque<String> = VecDeque::new();
+    let ui_audit = aegis_security::AuditLog::new();
     let mut reader_closed = false;
     // Full output of the most recent tool, for `/expand`.
     let mut last_tool_output = String::new();
@@ -2585,7 +3457,7 @@ pub async fn run_cli_client() -> Result<()> {
             if last_tool_output.trim().is_empty() {
                 eprintln!("  (no tool output to expand yet)");
             } else {
-                eprintln!("{}", crate::markdown::render(&last_tool_output));
+                eprintln!("{}", render_expand_output(&last_tool_output));
             }
             continue 'outer;
         }
@@ -2599,7 +3471,9 @@ pub async fn run_cli_client() -> Result<()> {
             continue 'outer;
         }
         if let Some(arg) = lt.strip_prefix("/queue remove ").or_else(|| lt.strip_prefix("/queue rm ")) {
-            eprintln!("  {}", queue_remove(&mut queue, arg));
+            let msg = queue_remove(&mut queue, arg);
+            ui_audit.log_action("cli", "ui:/queue", &msg);
+            eprintln!("  {msg}");
             continue 'outer;
         }
         if lt == "/queue" {
@@ -2618,6 +3492,7 @@ pub async fn run_cli_client() -> Result<()> {
         if lt == "/queue clear" {
             let n = queue.len();
             queue.clear();
+            ui_audit.log_action("cli", "ui:/queue", &format!("cleared {n} queued instruction(s)"));
             eprintln!("  cleared {n} queued instruction(s)");
             continue 'outer;
         }
@@ -2625,7 +3500,7 @@ pub async fn run_cli_client() -> Result<()> {
         // Dispatch one turn to the daemon.
         let req = serde_json::json!({ "line": line }).to_string();
         if wh.write_all(req.as_bytes()).await.is_err() || wh.write_all(b"\n").await.is_err() {
-            eprintln!("gateway connection lost.");
+            print_gateway_disconnect_guidance("lost");
             break 'outer;
         }
         let mut final_text = String::new();
@@ -2731,6 +3606,7 @@ pub async fn run_cli_client() -> Result<()> {
                         Ok(AgentEvent::Usage { used, limit }) => {
                             if let Ok(mut g) = usage.lock() { *g = (used, limit); }
                         }
+                        Ok(AgentEvent::SteerList { .. }) => {}
                         Ok(AgentEvent::Final { text }) => final_text = text,
                         Ok(AgentEvent::Error { text }) => err_text = text,
                         Ok(AgentEvent::End) => break 'turn,
@@ -2750,7 +3626,7 @@ pub async fn run_cli_client() -> Result<()> {
                             if last_tool_output.trim().is_empty() {
                                 eprintln!("  (no tool output to expand yet)");
                             } else {
-                                eprintln!("{}", crate::markdown::render(&last_tool_output));
+                                eprintln!("{}", render_expand_output(&last_tool_output));
                             }
                         } else if lt == "/thinking" {
                             if last_reasoning.trim().is_empty() {
@@ -2777,11 +3653,15 @@ pub async fn run_cli_client() -> Result<()> {
                             awaiting = false;
                             pending_options.clear();
                         } else if let Some(arg) = lt.strip_prefix("/queue remove ").or_else(|| lt.strip_prefix("/queue rm ")) {
-                            eprintln!("  {}", queue_remove(&mut queue, arg));
+                            let msg = queue_remove(&mut queue, arg);
+                            ui_audit.log_action("cli", "ui:/queue", &msg);
+                            eprintln!("  {msg}");
                         } else if lt == "/queue" {
                             eprintln!("  {} {} queued", "⏳".dimmed(), queue.len());
                         } else if lt == "/queue clear" {
+                            let n = queue.len();
                             queue.clear();
+                            ui_audit.log_action("cli", "ui:/queue", &format!("cleared {n} queued instruction(s)"));
                             eprintln!("  queue cleared");
                         } else if !lt.is_empty() {
                             queue.push_back(lt);
@@ -2805,7 +3685,7 @@ pub async fn run_cli_client() -> Result<()> {
         }
         eprintln!();
         if closed {
-            eprintln!("gateway connection closed.");
+            print_gateway_disconnect_guidance("closed");
             break 'outer;
         }
         if let Some(next) = queue.front() {
@@ -2833,6 +3713,7 @@ async fn run_cli_tui(
     let (ktx, mut krx) = mpsc::unbounded_channel::<Key>();
     crate::tui::spawn_key_reader(ktx);
     let mut region = LiveRegion::new();
+    let ui_audit = aegis_security::AuditLog::new();
 
     let mut input = String::new();
     let mut cursor = 0usize; // char index
@@ -2846,15 +3727,29 @@ async fn run_cli_tui(
     let mut pending_prompt: Option<String> = None;
     let mut sel = 0usize; // highlighted option index in a clarify selection
     let mut approve_mode = false; // the pending question is an approve (y/always/n)
-    // Command palette (Tab or bare `/`): browse/filter all slash commands.
+    // Inline completions: `/` starts command mode; Tab accepts/completes.
     let mut menu = false;
+    let mut resume_picker = false;
+    let mut rollback_picker = false;
+    let mut memory_picker = false;
+    let mut steer_picker = false;
+    let mut server_picker = false;
+    let mut secret_picker = false;
+    let mut queue_picker = false;
+    let mut history_picker = false;
+    let mut search_picker = false;
+    let mut steer_items: Vec<SteerPickerItem> = Vec::new();
+    let mut rollback_confirm: Option<String> = None;
+    let mut server_remove_confirm: Option<String> = None;
+    let mut secret_reveal_confirm: Option<String> = None;
     let mut menu_sel = 0usize;
-    let mut menu_items: Vec<(&'static str, &'static str)> = Vec::new();
+    let mut menu_items: Vec<TuiCompletion> = Vec::new();
     // Multi-question clarify form (←/→ switch question, ↑/↓ pick, Enter submit all).
     let mut cb_qs: Vec<ClarifyItem> = Vec::new();
     let mut cb_i = 0usize;
     let mut cb_sel: Vec<usize> = Vec::new();
     let mut cb_text: Vec<String> = Vec::new();
+    let mut server_add_form = false;
     // Live activity (this turn): tool calls/outputs shown in the region and
     // auto-collapsed (cleared) when the turn ends. reasoning is shown alongside.
     let mut activity: Vec<String> = Vec::new();
@@ -2865,6 +3760,7 @@ async fn run_cli_tui(
     let mut last_tool_output = String::new();
     let mut last_reasoning = String::new();
     let mut last_interrupt = false;
+    let mut last_esc_at: Option<std::time::Instant> = None;
     let mut final_text = String::new();
     let mut err_text = String::new();
     let mut label = String::new();
@@ -2905,14 +3801,48 @@ async fn run_cli_tui(
                     } else {
                         cb_qs[i].options.get(cb_sel[i]).cloned().unwrap_or_default()
                     };
-                    let a: String = a.chars().take(10).collect();
+                    let a = if server_add_form && i == 3 && !a.is_empty() {
+                        "********".to_string()
+                    } else {
+                        a.chars().take(10).collect()
+                    };
                     let mark = if i == cb_i { "▸" } else { "·" };
                     summ.push_str(&format!("{mark}{}={} ", i + 1, if a.is_empty() { "?" } else { a.as_str() }));
                 }
                 ls.push(format!("{}{}", mid, crate::tui::clip_cols(&summ, inner).dimmed()));
-                ls.push(format!("{}{}", mid, "←/→ 切题 · ↑/↓ 选项 · 输入改写 · Enter 提交 · Esc 取消".dimmed()));
+                let hint = if server_add_form {
+                    "←/→ 切字段 · 输入填写 · Enter 下一项/保存 · Esc 取消"
+                } else {
+                    "←/→ 切题 · ↑/↓ 选项 · 输入改写 · Enter 提交 · Esc 取消"
+                };
+                ls.push(format!("{}{}", mid, hint.dimmed()));
             } else if menu {
-                ls.push(format!("{}{}", top, "命令面板 · ↑/↓ 选择 · Enter 选中 · Esc 取消 · 可继续输入筛选".cyan()));
+                let heading = if resume_picker {
+                    "resume sessions · ↑/↓ 选择 · Tab 补全 · Enter 载入 · Esc 关闭"
+                } else if rollback_picker {
+                    "rollback checkpoints · ↑/↓ 选择 · Enter 选择 · Esc 取消"
+                } else if memory_picker && input.trim_start().starts_with("/memory remove") {
+                    "memories · ↑/↓ 选择 · 输入筛选 · Enter 删除 · Esc 取消"
+                } else if memory_picker {
+                    "memories · ↑/↓ 选择 · 输入筛选 · Enter 查看 · Esc 取消"
+                } else if steer_picker && input.trim_start().starts_with("/steer remove") {
+                    "steering · ↑/↓ 选择 · 输入筛选 · Enter 删除 · Esc 取消"
+                } else if steer_picker && input.trim_start() == "/steer clear" {
+                    "steering · ↑/↓ 选择 · Enter 清空 · Esc 取消"
+                } else if steer_picker {
+                    "steering · ↑/↓ 选择 · 输入筛选 · Enter 查看 · Esc 取消"
+                } else if server_picker {
+                    "servers · ↑/↓ 选择 · 输入筛选 · Enter 删除 · Esc 取消"
+                } else if secret_picker && input.trim_start().starts_with("/secret remove") {
+                    "secrets · ↑/↓ 选择 · 输入筛选 · Enter 填入删除命令 · Esc 取消"
+                } else if secret_picker {
+                    "secrets · ↑/↓ 选择 · 输入筛选 · Enter reveal · Esc 取消"
+                } else if input.starts_with('/') {
+                    "commands · ↑/↓ 选择 · Tab/Enter 补全 · Esc 关闭"
+                } else {
+                    "completions · ↑/↓ 选择 · Tab/Enter 补全 · Esc 关闭"
+                };
+                ls.push(format!("{}{}", top, heading.cyan()));
                 let total = menu_items.len();
                 let max_show = 10usize;
                 let start = if menu_sel >= max_show { menu_sel + 1 - max_show } else { 0 };
@@ -2921,9 +3851,9 @@ async fn run_cli_tui(
                     ls.push(format!("{}{}", mid, "↑ …".dimmed()));
                 }
                 for i in start..end {
-                    let (name, desc) = menu_items[i];
+                    let item = &menu_items[i];
                     let marker = if i == menu_sel { "▸" } else { " " };
-                    let row = crate::tui::clip_cols(&format!(" {marker} {:<14} {desc}", name.trim()), inner);
+                    let row = crate::tui::clip_cols(&format!(" {marker} {:<28} {}", item.label, item.desc), inner);
                     if i == menu_sel {
                         ls.push(format!("{}{}", mid, row.cyan().bold()));
                     } else {
@@ -2933,6 +3863,18 @@ async fn run_cli_tui(
                 if end < total {
                     ls.push(format!("{}{}", mid, "↓ …".dimmed()));
                 }
+            } else if let Some(target) = &rollback_confirm {
+                ls.push(format!("{}{}", top, "rollback confirmation · Enter 恢复 · Esc 取消".yellow()));
+                ls.push(format!("{}{}", mid, crate::tui::clip_cols(target, inner).bright_white()));
+                ls.push(format!("{}{}", mid, "恢复会覆盖原文件内容；确认后将执行当前输入的 /rollback 命令。".dimmed()));
+            } else if let Some(target) = &server_remove_confirm {
+                ls.push(format!("{}{}", top, "server remove confirmation · Enter 删除 · Esc 取消".yellow()));
+                ls.push(format!("{}{}", mid, crate::tui::clip_cols(target, inner).bright_white()));
+                ls.push(format!("{}{}", mid, "删除只移除本地 server handle 和凭证；确认后将执行当前输入的 /server remove 命令。".dimmed()));
+            } else if let Some(target) = &secret_reveal_confirm {
+                ls.push(format!("{}{}", top, "secret reveal confirmation · Enter 显示 · Esc 取消".yellow()));
+                ls.push(format!("{}{}", mid, crate::tui::clip_cols(target, inner).bright_white()));
+                ls.push(format!("{}{}", mid, "确认后会把 secret 明文显示到当前终端 scrollback。".dimmed()));
             } else if let Some(q) = &pending_prompt {
                 ls.push(format!("{}{}", top, crate::tui::clip_cols(&format!("❓ {q}"), inner).cyan()));
                 if !pending_options.is_empty() {
@@ -2950,6 +3892,8 @@ async fn run_cli_tui(
                     }
                     ls.push(format!("{}{}", mid, "↑/↓ 选择 · Enter 确认 · 或直接输入".dimmed()));
                 }
+            } else if input.starts_with('!') {
+                ls.push(format!("{}{}", top, "shell command · Tab 补全命令/路径 · Enter 执行 · Ctrl+C 清空".cyan()));
             } else if running {
                 let secs = started.elapsed().as_secs();
                 let (used, lim) = usage.lock().map(|g| *g).unwrap_or((0, 0));
@@ -3021,7 +3965,7 @@ async fn run_cli_tui(
                 let req = serde_json::json!({ "line": line }).to_string();
                 if wh.write_all(req.as_bytes()).await.is_err() || wh.write_all(b"\n").await.is_err() {
                     region.clear();
-                    eprintln!("gateway connection lost.");
+                    print_gateway_disconnect_guidance("lost");
                     return Ok(());
                 }
                 running = true;
@@ -3051,7 +3995,7 @@ async fn run_cli_tui(
             }
             r = reader.read_line(&mut buf) => {
                 let raw_line = match r {
-                    Ok(0) => { region.clear(); eprintln!("gateway connection closed."); return Ok(()); }
+                    Ok(0) => { region.clear(); print_gateway_disconnect_guidance("closed"); return Ok(()); }
                     Ok(_) => std::mem::take(&mut buf),
                     Err(_) => { region.clear(); return Ok(()); }
                 };
@@ -3153,16 +4097,19 @@ async fn run_cli_tui(
                         cb_i = 0;
                         cb_sel = vec![0; questions.len()];
                         cb_text = vec![String::new(); questions.len()];
+                        server_add_form = false;
                         cb_qs = questions;
                         let (l, c) = lines!();
                         region.render(&l, c);
                     }
                     Ok(AgentEvent::Usage { used, limit }) => { if let Ok(mut g) = usage.lock() { *g = (used, limit); } }
+                    Ok(AgentEvent::SteerList { .. }) => {}
                     Ok(AgentEvent::Final { text }) => { final_text = text; }
                     Ok(AgentEvent::Error { text }) => { err_text = text; }
                     Ok(AgentEvent::End) => {
                         running = false; awaiting = false; pending_prompt = None; pending_options.clear();
                         cb_qs.clear();
+                        server_add_form = false;
                         approve_mode = false; cancelling = false;
                         // Auto-collapse: clear the live activity (it vanishes from
                         // the region) and emit a compact summary to scrollback.
@@ -3225,6 +4172,9 @@ async fn run_cli_tui(
             }
             k = krx.recv() => {
                 let key = match k { Some(k) => k, None => { region.clear(); return Ok(()); } };
+                if !matches!(&key, Key::Esc) {
+                    last_esc_at = None;
+                }
                 let mut redraw = true;
                 // Multi-question clarify form intercepts keys (←/→ question,
                 // ↑/↓ answer, type to override, Enter submit all, Esc cancel).
@@ -3248,6 +4198,12 @@ async fn run_cli_tui(
                         Key::Backspace => { cb_text[cb_i].pop(); }
                         Key::CtrlU => { cb_text[cb_i].clear(); }
                         Key::Enter => {
+                            if server_add_form && cb_i + 1 < cb_qs.len() {
+                                cb_i += 1;
+                                let (l, c) = lines!();
+                                region.render(&l, c);
+                                continue;
+                            }
                             // Resolve each answer: typed text overrides; else the
                             // selected option (or "" for an unanswered free-text).
                             let answers: Vec<String> = cb_qs
@@ -3262,6 +4218,54 @@ async fn run_cli_tui(
                                     }
                                 })
                                 .collect();
+                            if server_add_form {
+                                let name = answers.get(0).map(|s| s.trim()).unwrap_or("");
+                                let host = answers.get(1).map(|s| s.trim()).unwrap_or("");
+                                let user = answers.get(2).map(|s| s.trim()).unwrap_or("");
+                                let password = answers.get(3).map(|s| s.trim()).unwrap_or("");
+                                let port_raw = answers.get(4).map(|s| s.trim()).unwrap_or("");
+                                if name.is_empty() || host.is_empty() || user.is_empty() {
+                                    cb_i = if name.is_empty() { 0 } else if host.is_empty() { 1 } else { 2 };
+                                    let (l, c) = lines!();
+                                    region.print_above("  /server add requires name, host and user.", &l, c);
+                                    continue;
+                                }
+                                let port = if port_raw.is_empty() {
+                                    22
+                                } else if let Ok(port) = port_raw.parse::<u64>() {
+                                    port
+                                } else {
+                                    cb_i = 4;
+                                    let (l, c) = lines!();
+                                    region.print_above("  /server add port must be a number.", &l, c);
+                                    continue;
+                                };
+                                let cred = aegis_tools::remotes::RemoteCred {
+                                    host: host.to_string(),
+                                    user: user.to_string(),
+                                    password: if password.is_empty() { None } else { Some(password.to_string()) },
+                                    port,
+                                    key: None,
+                                };
+                                let msg = match aegis_tools::remotes::save(name, cred) {
+                                    Ok(_) => {
+                                        ui_audit.log_action(
+                                            "cli",
+                                            "ui:/server",
+                                            &format!("add_form_saved name={name};port={port};password_present={}", !password.is_empty()),
+                                        );
+                                        format!("  saved server '{name}' ({user}@{host}:{port})")
+                                    }
+                                    Err(e) => format!("  save failed: {e}"),
+                                };
+                                cb_qs.clear();
+                                cb_text.clear();
+                                cb_sel.clear();
+                                server_add_form = false;
+                                let (l, c) = lines!();
+                                region.print_above(&msg, &l, c);
+                                continue;
+                            }
                             let payload = serde_json::json!({ "answers": answers }).to_string();
                             let _ = wh.write_all(payload.as_bytes()).await;
                             let _ = wh.write_all(b"\n").await;
@@ -3276,11 +4280,22 @@ async fn run_cli_tui(
                             continue;
                         }
                         Key::Esc | Key::CtrlC => {
+                            if server_add_form {
+                                ui_audit.log_action("cli", "ui:/server", "add_form_canceled");
+                                cb_qs.clear();
+                                cb_text.clear();
+                                cb_sel.clear();
+                                server_add_form = false;
+                                let (l, c) = lines!();
+                                region.print_above(&format!("  {} /server add canceled", "↩".yellow()), &l, c);
+                                continue;
+                            }
                             let _ = wh.write_all(b"{\"cancel\":true}\n").await;
+                            ui_audit.log_action("cli", "ui:clarify", "canceled");
                             cb_qs.clear();
                             cancelling = true;
                             let (l, c) = lines!();
-                            region.print_above(&format!("  {} canceled", "⏹".yellow()), &l, c);
+                            region.print_above(&format!("  {} clarify canceled", "⏹".yellow()), &l, c);
                             continue;
                         }
                         _ => {}
@@ -3289,21 +4304,330 @@ async fn run_cli_tui(
                     region.render(&l, c);
                     continue;
                 }
-                // Command-palette mode intercepts keys: navigate/filter/select.
+                // Completion mode intercepts navigation and completion keys.
                 if menu {
-                    match key {
+                    let mut submit_after_menu = false;
+                    match key.clone() {
                         Key::Up => { menu_sel = menu_sel.saturating_sub(1); }
                         Key::Down => { if menu_sel + 1 < menu_items.len() { menu_sel += 1; } }
                         Key::Enter => {
-                            if let Some((name, _)) = menu_items.get(menu_sel) {
-                                input = name.to_string();
-                                cursor = input.chars().count();
+                            let was_resume_picker = resume_picker;
+                            let was_rollback_picker = rollback_picker;
+                            let was_memory_picker = memory_picker;
+                            let was_steer_picker = steer_picker;
+                            let was_server_picker = server_picker;
+                            let was_secret_picker = secret_picker;
+                            let was_queue_picker = queue_picker;
+                            let was_history_picker = history_picker;
+                            let was_search_picker = search_picker;
+                            if let Some(item) = menu_items.get(menu_sel).cloned() {
+                                if was_resume_picker {
+                                    ui_audit.log_action("cli", "ui:/resume", &format!("session_selected {}", item.value));
+                                }
+                                if was_rollback_picker {
+                                    ui_audit.log_action("cli", "ui:/rollback", &format!("checkpoint_selected {}", item.value));
+                                    rollback_confirm = Some(format!("{} → {}", item.label, item.desc));
+                                }
+                                if was_memory_picker {
+                                    ui_audit.log_action("cli", "ui:/memory", &format!("memory_selected {}", item.value));
+                                }
+                                if was_steer_picker {
+                                    ui_audit.log_action("cli", "ui:/steer", &format!("steer_selected {}", item.value));
+                                }
+                                if was_server_picker {
+                                    ui_audit.log_action("cli", "ui:/server", &format!("server_selected {}", item.label));
+                                    server_remove_confirm = Some(format!("{} → {}", item.label, item.desc));
+                                }
+                                if was_secret_picker {
+                                    ui_audit.log_action("cli", "ui:/secret", &format!("secret_selected {}", item.label));
+                                    if item.value.starts_with("/secret reveal ") {
+                                        secret_reveal_confirm = Some(format!("{} → {}", item.label, item.desc));
+                                    }
+                                }
+                                if was_queue_picker {
+                                    ui_audit.log_action("cli", "ui:/queue", &format!("remove_selected {}", item.value));
+                                }
+                                if was_history_picker {
+                                    ui_audit.log_action("cli", "ui:history", "history_selected");
+                                }
+                                if was_search_picker {
+                                    ui_audit.log_action("cli", "ui:/search", &format!("result_selected {}", item.value));
+                                }
+                                apply_completion(&mut input, &mut cursor, &item);
+                                submit_after_menu = item.submit_on_enter;
                             }
                             menu = false;
+                            resume_picker = false;
+                            rollback_picker = false;
+                            memory_picker = false;
+                            steer_picker = false;
+                            server_picker = false;
+                            secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false;
                         }
-                        Key::Esc | Key::CtrlC | Key::Tab => { menu = false; }
-                        Key::Paste(text) => {
+                        Key::Tab => {
+                            if let Some(item) = menu_items.get(menu_sel).cloned() {
+                                if rollback_picker {
+                                    ui_audit.log_action("cli", "ui:/rollback", &format!("checkpoint_selected {}", item.value));
+                                    rollback_confirm = Some(format!("{} → {}", item.label, item.desc));
+                                    apply_completion(&mut input, &mut cursor, &item);
+                                    menu = false;
+                                    resume_picker = false;
+                                    rollback_picker = false;
+                                    memory_picker = false;
+                                    steer_picker = false;
+                                    server_picker = false;
+                                    secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false;
+                                    let (l, c) = lines!();
+                                    region.render(&l, c);
+                                    continue;
+                                }
+                                if server_picker {
+                                    ui_audit.log_action("cli", "ui:/server", &format!("server_selected {}", item.label));
+                                    server_remove_confirm = Some(format!("{} → {}", item.label, item.desc));
+                                    apply_completion(&mut input, &mut cursor, &item);
+                                    menu = false;
+                                    resume_picker = false;
+                                    rollback_picker = false;
+                                    memory_picker = false;
+                                    steer_picker = false;
+                                    server_picker = false;
+                                    secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false;
+                                    let (l, c) = lines!();
+                                    region.render(&l, c);
+                                    continue;
+                                }
+                                if secret_picker {
+                                    ui_audit.log_action("cli", "ui:/secret", &format!("secret_selected {}", item.label));
+                                    if item.value.starts_with("/secret reveal ") {
+                                        secret_reveal_confirm = Some(format!("{} → {}", item.label, item.desc));
+                                    }
+                                    apply_completion(&mut input, &mut cursor, &item);
+                                    menu = false;
+                                    resume_picker = false;
+                                    rollback_picker = false;
+                                    memory_picker = false;
+                                    steer_picker = false;
+                                    server_picker = false;
+                                    secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false;
+                                    let (l, c) = lines!();
+                                    region.render(&l, c);
+                                    continue;
+                                }
+                                apply_completion(&mut input, &mut cursor, &item);
+                            }
+                            menu_items = if resume_picker {
+                                resume_session_completions(&input, cursor)
+                            } else if rollback_picker {
+                                rollback_checkpoint_completions(&input, cursor)
+                            } else if memory_picker {
+                                memory_completions(&input, cursor)
+                            } else if steer_picker {
+                                steer_completions(&input, cursor, &steer_items)
+                            } else if server_picker {
+                                server_completions(&input, cursor)
+                            } else if secret_picker {
+                                secret_completions(&input, cursor)
+                            } else if queue_picker {
+                                queue_remove_completions(&input, cursor, &queue)
+                            } else if history_picker {
+                                history_completions(&input, cursor, &history)
+                            } else if search_picker {
+                                search_result_completions(&input, cursor)
+                            } else {
+                                completion_items(&input, cursor, input.starts_with('!'), running)
+                            };
+                            menu_sel = 0;
+                            menu = !menu_items.is_empty();
+                            if !menu { resume_picker = false; rollback_picker = false; memory_picker = false; steer_picker = false; server_picker = false; secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false; }
+                        }
+                        Key::Esc | Key::CtrlC => {
+                            if resume_picker {
+                                ui_audit.log_action("cli", "ui:/resume", "picker_canceled");
+                                input.clear();
+                                cursor = 0;
+                                menu = false;
+                                resume_picker = false;
+                                rollback_picker = false;
+                                memory_picker = false;
+                                steer_picker = false;
+                                server_picker = false;
+                                secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false;
+                                let (l, c) = lines!();
+                                region.print_above(&format!("  {} /resume canceled", "↩".yellow()), &l, c);
+                                continue;
+                            }
+                            if rollback_picker {
+                                ui_audit.log_action("cli", "ui:/rollback", "picker_canceled");
+                                input.clear();
+                                cursor = 0;
+                                menu = false;
+                                resume_picker = false;
+                                rollback_picker = false;
+                                memory_picker = false;
+                                steer_picker = false;
+                                server_picker = false;
+                                secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false;
+                                let (l, c) = lines!();
+                                region.print_above(&format!("  {} /rollback canceled", "↩".yellow()), &l, c);
+                                continue;
+                            }
+                            if memory_picker {
+                                ui_audit.log_action("cli", "ui:/memory", "picker_canceled");
+                                input.clear();
+                                cursor = 0;
+                                menu = false;
+                                resume_picker = false;
+                                rollback_picker = false;
+                                memory_picker = false;
+                                steer_picker = false;
+                                server_picker = false;
+                                secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false;
+                                let (l, c) = lines!();
+                                region.print_above(&format!("  {} /memory canceled", "↩".yellow()), &l, c);
+                                continue;
+                            }
+                            if steer_picker {
+                                ui_audit.log_action("cli", "ui:/steer", "picker_canceled");
+                                input.clear();
+                                cursor = 0;
+                                menu = false;
+                                resume_picker = false;
+                                rollback_picker = false;
+                                memory_picker = false;
+                                steer_picker = false;
+                                server_picker = false;
+                                secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false;
+                                let (l, c) = lines!();
+                                region.print_above(&format!("  {} /steer canceled", "↩".yellow()), &l, c);
+                                continue;
+                            }
+                            if server_picker {
+                                ui_audit.log_action("cli", "ui:/server", "picker_canceled");
+                                input.clear();
+                                cursor = 0;
+                                menu = false;
+                                resume_picker = false;
+                                rollback_picker = false;
+                                memory_picker = false;
+                                steer_picker = false;
+                                server_picker = false;
+                                secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false;
+                                let (l, c) = lines!();
+                                region.print_above(&format!("  {} /server canceled", "↩".yellow()), &l, c);
+                                continue;
+                            }
+                            if secret_picker {
+                                ui_audit.log_action("cli", "ui:/secret", "picker_canceled");
+                                input.clear();
+                                cursor = 0;
+                                menu = false;
+                                resume_picker = false;
+                                rollback_picker = false;
+                                memory_picker = false;
+                                steer_picker = false;
+                                server_picker = false;
+                                secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false;
+                                let (l, c) = lines!();
+                                region.print_above(&format!("  {} /secret canceled", "↩".yellow()), &l, c);
+                                continue;
+                            }
+                            if queue_picker {
+                                ui_audit.log_action("cli", "ui:/queue", "remove_picker_canceled");
+                                input.clear();
+                                cursor = 0;
+                                menu = false;
+                                resume_picker = false;
+                                rollback_picker = false;
+                                memory_picker = false;
+                                steer_picker = false;
+                                server_picker = false;
+                                secret_picker = false;
+                                queue_picker = false;
+                                history_picker = false;
+                            search_picker = false;
+                                let (l, c) = lines!();
+                                region.print_above(&format!("  {} /queue remove canceled", "↩".yellow()), &l, c);
+                                continue;
+                            }
+                            if history_picker {
+                                ui_audit.log_action("cli", "ui:history", "search_canceled");
+                                menu = false;
+                                resume_picker = false;
+                                rollback_picker = false;
+                                memory_picker = false;
+                                steer_picker = false;
+                                server_picker = false;
+                                secret_picker = false;
+                                queue_picker = false;
+                                history_picker = false;
+                            search_picker = false;
+                                let (l, c) = lines!();
+                                region.render(&l, c);
+                                continue;
+                            }
+                            if search_picker {
+                                ui_audit.log_action("cli", "ui:/search", "picker_canceled");
+                                input.clear();
+                                cursor = 0;
+                                menu = false;
+                                resume_picker = false;
+                                rollback_picker = false;
+                                memory_picker = false;
+                                steer_picker = false;
+                                server_picker = false;
+                                secret_picker = false;
+                                queue_picker = false;
+                                history_picker = false;
+                                search_picker = false;
+                                let (l, c) = lines!();
+                                region.print_above(&format!("  {} /search canceled", "↩".yellow()), &l, c);
+                                continue;
+                            }
                             menu = false;
+                            resume_picker = false;
+                            rollback_picker = false;
+                            memory_picker = false;
+                            steer_picker = false;
+                            server_picker = false;
+                            secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false;
+                        }
+                        Key::Paste(text) => {
                             let mut v: Vec<char> = input.chars().collect();
                             let at = cursor.min(v.len());
                             let pasted: Vec<char> = text.chars().collect();
@@ -3312,6 +4636,33 @@ async fn run_cli_tui(
                             input = v.into_iter().collect();
                             cursor = at + plen;
                             hist_pos = None;
+                            menu_items = if resume_picker {
+                                resume_session_completions(&input, cursor)
+                            } else if rollback_picker {
+                                rollback_checkpoint_completions(&input, cursor)
+                            } else if memory_picker {
+                                memory_completions(&input, cursor)
+                            } else if steer_picker {
+                                steer_completions(&input, cursor, &steer_items)
+                            } else if server_picker {
+                                server_completions(&input, cursor)
+                            } else if secret_picker {
+                                secret_completions(&input, cursor)
+                            } else if queue_picker {
+                                queue_remove_completions(&input, cursor, &queue)
+                            } else if history_picker {
+                                history_completions(&input, cursor, &history)
+                            } else if search_picker {
+                                search_result_completions(&input, cursor)
+                            } else {
+                                completion_items(&input, cursor, input.starts_with('!'), running)
+                            };
+                            menu_sel = 0;
+                            menu = !menu_items.is_empty();
+                            if !menu { resume_picker = false; rollback_picker = false; memory_picker = false; steer_picker = false; server_picker = false; secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false; }
                         }
                         Key::Char(ch) => {
                             let mut v: Vec<char> = input.chars().collect();
@@ -3319,9 +4670,34 @@ async fn run_cli_tui(
                             v.insert(at, ch);
                             input = v.into_iter().collect();
                             cursor = at + 1;
-                            menu_items = filter_cmds(&input);
+                            hist_pos = None;
+                            menu_items = if resume_picker {
+                                resume_session_completions(&input, cursor)
+                            } else if rollback_picker {
+                                rollback_checkpoint_completions(&input, cursor)
+                            } else if memory_picker {
+                                memory_completions(&input, cursor)
+                            } else if steer_picker {
+                                steer_completions(&input, cursor, &steer_items)
+                            } else if server_picker {
+                                server_completions(&input, cursor)
+                            } else if secret_picker {
+                                secret_completions(&input, cursor)
+                            } else if queue_picker {
+                                queue_remove_completions(&input, cursor, &queue)
+                            } else if history_picker {
+                                history_completions(&input, cursor, &history)
+                            } else if search_picker {
+                                search_result_completions(&input, cursor)
+                            } else {
+                                completion_items(&input, cursor, input.starts_with('!'), running)
+                            };
                             menu_sel = 0;
-                            if menu_items.is_empty() { menu = false; }
+                            menu = !menu_items.is_empty();
+                            if !menu { resume_picker = false; rollback_picker = false; memory_picker = false; steer_picker = false; server_picker = false; secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false; }
                         }
                         Key::Backspace => {
                             if cursor > 0 {
@@ -3330,25 +4706,61 @@ async fn run_cli_tui(
                                 input = v.into_iter().collect();
                                 cursor -= 1;
                             }
-                            menu_items = filter_cmds(&input);
+                            menu_items = if resume_picker {
+                                resume_session_completions(&input, cursor)
+                            } else if rollback_picker {
+                                rollback_checkpoint_completions(&input, cursor)
+                            } else if memory_picker {
+                                memory_completions(&input, cursor)
+                            } else if steer_picker {
+                                steer_completions(&input, cursor, &steer_items)
+                            } else if server_picker {
+                                server_completions(&input, cursor)
+                            } else if secret_picker {
+                                secret_completions(&input, cursor)
+                            } else if queue_picker {
+                                queue_remove_completions(&input, cursor, &queue)
+                            } else if history_picker {
+                                history_completions(&input, cursor, &history)
+                            } else if search_picker {
+                                search_result_completions(&input, cursor)
+                            } else {
+                                completion_items(&input, cursor, input.starts_with('!'), running)
+                            };
                             if menu_sel >= menu_items.len() { menu_sel = menu_items.len().saturating_sub(1); }
+                            menu = !menu_items.is_empty();
+                            if !menu { resume_picker = false; rollback_picker = false; memory_picker = false; steer_picker = false; server_picker = false; secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false; }
                         }
                         _ => {}
                     }
-                    let (l, c) = lines!();
-                    region.render(&l, c);
-                    continue;
+                    if !submit_after_menu {
+                        let (l, c) = lines!();
+                        region.render(&l, c);
+                        continue;
+                    }
                 }
                 match key {
                     Key::Char(ch) => {
+                        rollback_confirm = None;
+                        server_remove_confirm = None;
+                        secret_reveal_confirm = None;
                         let mut v: Vec<char> = input.chars().collect();
                         let at = cursor.min(v.len());
                         v.insert(at, ch);
                         input = v.into_iter().collect();
                         cursor = at + 1;
                         hist_pos = None;
+                        menu_items = completion_items(&input, cursor, input.starts_with('!'), running);
+                        menu_sel = 0;
+                        menu = !menu_items.is_empty();
                     }
                     Key::Paste(text) => {
+                        rollback_confirm = None;
+                        server_remove_confirm = None;
+                        secret_reveal_confirm = None;
                         let mut v: Vec<char> = input.chars().collect();
                         let at = cursor.min(v.len());
                         let pasted: Vec<char> = text.chars().collect();
@@ -3357,14 +4769,23 @@ async fn run_cli_tui(
                         input = v.into_iter().collect();
                         cursor = at + plen;
                         hist_pos = None;
+                        menu_items = completion_items(&input, cursor, input.starts_with('!'), running);
+                        menu_sel = 0;
+                        menu = !menu_items.is_empty();
                     }
                     Key::Backspace => {
+                        rollback_confirm = None;
+                        server_remove_confirm = None;
+                        secret_reveal_confirm = None;
                         if cursor > 0 {
                             let mut v: Vec<char> = input.chars().collect();
                             v.remove(cursor - 1);
                             input = v.into_iter().collect();
                             cursor -= 1;
                         }
+                        menu_items = completion_items(&input, cursor, input.starts_with('!'), running);
+                        if menu_sel >= menu_items.len() { menu_sel = menu_items.len().saturating_sub(1); }
+                        menu = !menu_items.is_empty();
                     }
                     Key::Left => { cursor = cursor.saturating_sub(1); }
                     Key::Right => { let n = input.chars().count(); if cursor < n { cursor += 1; } }
@@ -3372,6 +4793,9 @@ async fn run_cli_tui(
                         if awaiting && !pending_options.is_empty() {
                             sel = sel.saturating_sub(1);
                         } else if !history.is_empty() {
+                            rollback_confirm = None;
+                            server_remove_confirm = None;
+                            secret_reveal_confirm = None;
                             let i = match hist_pos { Some(0) => 0, Some(p) => p - 1, None => history.len() - 1 };
                             hist_pos = Some(i); input = history[i].clone(); cursor = input.chars().count();
                         }
@@ -3382,29 +4806,156 @@ async fn run_cli_tui(
                                 sel += 1;
                             }
                         } else if let Some(p) = hist_pos {
+                            rollback_confirm = None;
+                            server_remove_confirm = None;
+                            secret_reveal_confirm = None;
                             if p + 1 < history.len() { hist_pos = Some(p + 1); input = history[p + 1].clone(); }
                             else { hist_pos = None; input.clear(); }
                             cursor = input.chars().count();
                         }
                     }
-                    Key::CtrlU => { input.clear(); cursor = 0; }
-                    Key::Tab => {
-                        // Open the command palette (browse + arrow-select all
-                        // slash commands; type to filter). Not while answering.
-                        if !awaiting {
+                    Key::CtrlR => {
+                        rollback_confirm = None;
+                        server_remove_confirm = None;
+                        secret_reveal_confirm = None;
+                        menu_items = history_completions(&input, cursor, &history);
+                        menu_sel = 0;
+                        if menu_items.is_empty() {
+                            let (l, c) = lines!();
+                            region.print_above("  no matching history", &l, c);
+                            redraw = false;
+                        } else {
                             menu = true;
-                            menu_items = filter_cmds(&input);
+                            resume_picker = false;
+                            rollback_picker = false;
+                            memory_picker = false;
+                            steer_picker = false;
+                            server_picker = false;
+                            secret_picker = false;
+                            queue_picker = false;
+                            history_picker = true;
+                            ui_audit.log_action("cli", "ui:history", "search_opened");
+                        }
+                    }
+                    Key::CtrlU => { input.clear(); cursor = 0; menu = false; resume_picker = false; rollback_picker = false; memory_picker = false; steer_picker = false; server_picker = false; secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false; rollback_confirm = None; server_remove_confirm = None; secret_reveal_confirm = None; menu_items.clear(); }
+                    Key::Tab => {
+                        if !awaiting {
+                            let items = completion_items(&input, cursor, true, running);
+                            if items.len() == 1 {
+                                if let Some(item) = items.first() {
+                                    apply_completion(&mut input, &mut cursor, item);
+                                }
+                            } else if let (Some(item), Some(common)) = (items.first(), common_completion_prefix(&items)) {
+                                let existing = &input[item.replace_start..item.replace_end];
+                                if common.len() > existing.len() {
+                                    input.replace_range(item.replace_start..item.replace_end, &common);
+                                    cursor = input[..item.replace_start].chars().count() + common.chars().count();
+                                }
+                            }
+                            menu_items = if resume_picker {
+                                resume_session_completions(&input, cursor)
+                            } else if rollback_picker {
+                                rollback_checkpoint_completions(&input, cursor)
+                            } else if memory_picker {
+                                memory_completions(&input, cursor)
+                            } else if steer_picker {
+                                steer_completions(&input, cursor, &steer_items)
+                            } else if server_picker {
+                                server_completions(&input, cursor)
+                            } else if secret_picker {
+                                secret_completions(&input, cursor)
+                            } else if queue_picker {
+                                queue_remove_completions(&input, cursor, &queue)
+                            } else if history_picker {
+                                history_completions(&input, cursor, &history)
+                            } else if search_picker {
+                                search_result_completions(&input, cursor)
+                            } else {
+                                completion_items(&input, cursor, input.starts_with('!'), running)
+                            };
                             menu_sel = 0;
-                            if menu_items.is_empty() { menu_items = crate::completer::SLASH_COMMANDS.to_vec(); }
+                            menu = !menu_items.is_empty();
+                            if !menu { resume_picker = false; rollback_picker = false; memory_picker = false; steer_picker = false; server_picker = false; secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false; }
                         }
                     }
                     Key::Esc => {
+                        let now = std::time::Instant::now();
+                        let double_esc = last_esc_at
+                            .take()
+                            .map(|at| now.duration_since(at) <= Duration::from_millis(700))
+                            .unwrap_or(false);
+                        if rollback_confirm.take().is_some() {
+                            ui_audit.log_action("cli", "ui:/rollback", "confirmation_canceled");
+                            input.clear();
+                            cursor = 0;
+                            let (l, c) = lines!();
+                            region.print_above(&format!("  {} /rollback canceled", "↩".yellow()), &l, c);
+                            redraw = false;
+                        } else if server_remove_confirm.take().is_some() {
+                            ui_audit.log_action("cli", "ui:/server", "remove_confirmation_canceled");
+                            input.clear();
+                            cursor = 0;
+                            let (l, c) = lines!();
+                            region.print_above(&format!("  {} /server remove canceled", "↩".yellow()), &l, c);
+                            redraw = false;
+                        } else if secret_reveal_confirm.take().is_some() {
+                            ui_audit.log_action("cli", "ui:/secret", "reveal_confirmation_canceled");
+                            input.clear();
+                            cursor = 0;
+                            let (l, c) = lines!();
+                            region.print_above(&format!("  {} /secret reveal canceled", "↩".yellow()), &l, c);
+                            redraw = false;
+                        } else if double_esc && !input.is_empty() {
+                            input.clear();
+                            cursor = 0;
+                            menu = false;
+                            menu_items.clear();
+                            ui_audit.log_action("cli", "ui:draft", "cleared_by_esc_esc");
+                            let (l, c) = lines!();
+                            region.print_above(&format!("  {} draft cleared", "↩".yellow()), &l, c);
+                            redraw = false;
+                        } else if double_esc {
+                            input = "/rollback ".to_string();
+                            cursor = input.chars().count();
+                            menu_items = rollback_checkpoint_completions(&input, cursor);
+                            menu_sel = 0;
+                            if menu_items.is_empty() {
+                                input.clear();
+                                cursor = 0;
+                                let (l, c) = lines!();
+                                region.print_above("  No checkpoints available.", &l, c);
+                                redraw = false;
+                            } else {
+                                menu = true;
+                                resume_picker = false;
+                                rollback_picker = true;
+                                memory_picker = false;
+                                steer_picker = false;
+                                server_picker = false;
+                                secret_picker = false;
+                                queue_picker = false;
+                                history_picker = false;
+                            search_picker = false;
+                                rollback_confirm = None;
+                                server_remove_confirm = None;
+                                secret_reveal_confirm = None;
+                                ui_audit.log_action("cli", "ui:/rollback", "picker_opened_by_esc_esc");
+                            }
                         // Retract the most recently queued ("待发送") instruction.
-                        if let Some(removed) = queue.pop_back() {
+                        } else if let Some(removed) = queue.pop_back() {
                             let p: String = removed.chars().take(80).collect();
+                            ui_audit.log_action("cli", "ui:queue", &format!("retracted {p}"));
                             let (l, c) = lines!();
                             region.print_above(&format!("  {} 撤回: {}", "↩".yellow(), p), &l, c);
                             redraw = false;
+                        } else {
+                            last_esc_at = Some(now);
                         }
                     }
                     Key::CtrlL => { region.clear(); }
@@ -3413,6 +4964,11 @@ async fn run_cli_tui(
                         if running || awaiting {
                             if !cancelling {
                                 let _ = wh.write_all(b"{\"cancel\":true}\n").await;
+                                ui_audit.log_action(
+                                    "cli",
+                                    if awaiting && approve_mode { "ui:approve" } else if awaiting { "ui:clarify" } else { "ui:turn" },
+                                    "cancel_requested",
+                                );
                                 cancelling = true;
                                 // Drop the selection/approve UI immediately.
                                 awaiting = false; approve_mode = false;
@@ -3420,6 +4976,24 @@ async fn run_cli_tui(
                                 let (l, c) = lines!();
                                 region.print_above(&format!("  {} canceling…", "⏹".yellow()), &l, c);
                             }
+                            redraw = false;
+                        } else if rollback_confirm.take().is_some() {
+                            ui_audit.log_action("cli", "ui:/rollback", "confirmation_canceled");
+                            input.clear(); cursor = 0;
+                            let (l, c) = lines!();
+                            region.print_above(&format!("  {} /rollback canceled", "↩".yellow()), &l, c);
+                            redraw = false;
+                        } else if server_remove_confirm.take().is_some() {
+                            ui_audit.log_action("cli", "ui:/server", "remove_confirmation_canceled");
+                            input.clear(); cursor = 0;
+                            let (l, c) = lines!();
+                            region.print_above(&format!("  {} /server remove canceled", "↩".yellow()), &l, c);
+                            redraw = false;
+                        } else if secret_reveal_confirm.take().is_some() {
+                            ui_audit.log_action("cli", "ui:/secret", "reveal_confirmation_canceled");
+                            input.clear(); cursor = 0;
+                            let (l, c) = lines!();
+                            region.print_above(&format!("  {} /secret reveal canceled", "↩".yellow()), &l, c);
                             redraw = false;
                         } else if !input.is_empty() {
                             input.clear(); cursor = 0;
@@ -3464,6 +5038,7 @@ async fn run_cli_tui(
                             };
                             let _ = wh.write_all(serde_json::json!({ "answer": ans }).to_string().as_bytes()).await;
                             let _ = wh.write_all(b"\n").await;
+                            ui_audit.log_action("cli", if approve_mode { "ui:approve" } else { "ui:clarify" }, "answered");
                             awaiting = false; approve_mode = false;
                             let q_text = pending_prompt.take().unwrap_or_default();
                             pending_options.clear();
@@ -3478,15 +5053,291 @@ async fn run_cli_tui(
                         }
                         if sub == "/quit" || sub == "/exit" { region.clear(); eprintln!(); return Ok(()); }
                         if sub == "/" {
-                            // Open the command palette (arrow-select all commands).
-                            menu = true;
-                            menu_items = crate::completer::SLASH_COMMANDS.to_vec();
+                            let msg = "  输入命令名称继续筛选，例如 /resume；Tab 补全当前候选。";
+                            let (l, c) = lines!(); region.print_above(msg, &l, c); continue;
+                        }
+                        if sub == "/resume" {
+                            input = "/resume ".to_string();
+                            cursor = input.chars().count();
+                            menu_items = resume_session_completions(&input, cursor);
                             menu_sel = 0;
+                            if menu_items.is_empty() {
+                                input.clear(); cursor = 0;
+                                let msg = "  No past sessions found.";
+                                let (l, c) = lines!(); region.print_above(msg, &l, c); continue;
+                            }
+                            menu = true;
+                            resume_picker = true;
+                            rollback_picker = false;
+                            memory_picker = false;
+                            steer_picker = false;
+                            server_picker = false;
+                            secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false;
+                            rollback_confirm = None;
+                            server_remove_confirm = None;
+                            secret_reveal_confirm = None;
+                            ui_audit.log_action("cli", "ui:/resume", "picker_opened");
+                            let (l, c) = lines!(); region.render(&l, c); continue;
+                        }
+                        if sub == "/rollback" {
+                            input = "/rollback ".to_string();
+                            cursor = input.chars().count();
+                            menu_items = rollback_checkpoint_completions(&input, cursor);
+                            menu_sel = 0;
+                            if menu_items.is_empty() {
+                                input.clear(); cursor = 0;
+                                let msg = "  No checkpoints available.";
+                                let (l, c) = lines!(); region.print_above(msg, &l, c); continue;
+                            }
+                            menu = true;
+                            resume_picker = false;
+                            rollback_picker = true;
+                            memory_picker = false;
+                            steer_picker = false;
+                            server_picker = false;
+                            secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false;
+                            rollback_confirm = None;
+                            server_remove_confirm = None;
+                            secret_reveal_confirm = None;
+                            ui_audit.log_action("cli", "ui:/rollback", "picker_opened");
+                            let (l, c) = lines!(); region.render(&l, c); continue;
+                        }
+                        if sub == "/memory remove" || sub == "/memory rm" {
+                            input = "/memory remove ".to_string();
+                            cursor = input.chars().count();
+                            menu_items = memory_completions(&input, cursor);
+                            menu_sel = 0;
+                            if menu_items.is_empty() {
+                                input.clear(); cursor = 0;
+                                let msg = "  No memories stored yet.";
+                                let (l, c) = lines!(); region.print_above(msg, &l, c); continue;
+                            }
+                            menu = true;
+                            resume_picker = false;
+                            rollback_picker = false;
+                            memory_picker = true;
+                            steer_picker = false;
+                            server_picker = false;
+                            secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false;
+                            rollback_confirm = None;
+                            server_remove_confirm = None;
+                            secret_reveal_confirm = None;
+                            ui_audit.log_action("cli", "ui:/memory", "remove_picker_opened");
+                            let (l, c) = lines!(); region.render(&l, c); continue;
+                        }
+                        if sub == "/memory" {
+                            input = "/memory ".to_string();
+                            cursor = input.chars().count();
+                            menu_items = memory_completions(&input, cursor);
+                            menu_sel = 0;
+                            if menu_items.is_empty() {
+                                input.clear(); cursor = 0;
+                                let msg = "  No memories stored yet.";
+                                let (l, c) = lines!(); region.print_above(msg, &l, c); continue;
+                            }
+                            menu = true;
+                            resume_picker = false;
+                            rollback_picker = false;
+                            memory_picker = true;
+                            steer_picker = false;
+                            server_picker = false;
+                            secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false;
+                            rollback_confirm = None;
+                            server_remove_confirm = None;
+                            secret_reveal_confirm = None;
+                            ui_audit.log_action("cli", "ui:/memory", "picker_opened");
+                            let (l, c) = lines!(); region.render(&l, c); continue;
+                        }
+                        if sub == "/steer remove" || sub == "/steer rm" || sub == "/steer clear" {
+                            input = if sub == "/steer clear" { "/steer clear" } else { "/steer remove " }.to_string();
+                            cursor = input.chars().count();
+                            steer_items = fetch_steer_items(&mut reader, &mut wh).await;
+                            menu_items = steer_completions(&input, cursor, &steer_items);
+                            menu_sel = 0;
+                            if menu_items.is_empty() {
+                                input.clear(); cursor = 0;
+                                let msg = "  No steering instructions. Use /steer add <text>.";
+                                let (l, c) = lines!(); region.print_above(msg, &l, c); continue;
+                            }
+                            menu = true;
+                            resume_picker = false;
+                            rollback_picker = false;
+                            memory_picker = false;
+                            steer_picker = true;
+                            server_picker = false;
+                            secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false;
+                            rollback_confirm = None;
+                            server_remove_confirm = None;
+                            secret_reveal_confirm = None;
+                            ui_audit.log_action("cli", "ui:/steer", if sub == "/steer clear" { "clear_picker_opened" } else { "remove_picker_opened" });
+                            let (l, c) = lines!(); region.render(&l, c); continue;
+                        }
+                        if sub == "/steer" {
+                            input = "/steer ".to_string();
+                            cursor = input.chars().count();
+                            steer_items = fetch_steer_items(&mut reader, &mut wh).await;
+                            menu_items = steer_completions(&input, cursor, &steer_items);
+                            menu_sel = 0;
+                            if menu_items.is_empty() {
+                                input.clear(); cursor = 0;
+                                let msg = "  No steering instructions. Use /steer add <text>.";
+                                let (l, c) = lines!(); region.print_above(msg, &l, c); continue;
+                            }
+                            menu = true;
+                            resume_picker = false;
+                            rollback_picker = false;
+                            memory_picker = false;
+                            steer_picker = true;
+                            server_picker = false;
+                            secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false;
+                            rollback_confirm = None;
+                            server_remove_confirm = None;
+                            secret_reveal_confirm = None;
+                            ui_audit.log_action("cli", "ui:/steer", "picker_opened");
+                            let (l, c) = lines!(); region.render(&l, c); continue;
+                        }
+                        if sub == "/server add" {
+                            cb_qs = vec![
+                                ClarifyItem { question: "Server name".to_string(), options: Vec::new() },
+                                ClarifyItem { question: "Host".to_string(), options: Vec::new() },
+                                ClarifyItem { question: "User".to_string(), options: Vec::new() },
+                                ClarifyItem { question: "Password (optional; hidden in summary)".to_string(), options: Vec::new() },
+                                ClarifyItem { question: "Port (default 22)".to_string(), options: Vec::new() },
+                            ];
+                            cb_i = 0;
+                            cb_sel = vec![0; cb_qs.len()];
+                            cb_text = vec![String::new(); cb_qs.len()];
+                            server_add_form = true;
+                            input.clear();
+                            cursor = 0;
+                            ui_audit.log_action("cli", "ui:/server", "add_form_opened");
+                            let (l, c) = lines!(); region.render(&l, c); continue;
+                        }
+                        if sub == "/server" {
+                            input = "/server ".to_string();
+                            cursor = input.chars().count();
+                            menu_items = server_completions(&input, cursor);
+                            menu_sel = 0;
+                            if menu_items.is_empty() {
+                                input.clear(); cursor = 0;
+                                let msg = "  No saved servers. Use /server add <name> <host> <user> [password] [port].";
+                                let (l, c) = lines!(); region.print_above(msg, &l, c); continue;
+                            }
+                            menu = true;
+                            resume_picker = false;
+                            rollback_picker = false;
+                            memory_picker = false;
+                            steer_picker = false;
+                            server_picker = true;
+                            secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false;
+                            rollback_confirm = None;
+                            server_remove_confirm = None;
+                            secret_reveal_confirm = None;
+                            ui_audit.log_action("cli", "ui:/server", "picker_opened");
+                            let (l, c) = lines!(); region.render(&l, c); continue;
+                        }
+                        if sub == "/secret remove" || sub == "/secret rm" {
+                            input = "/secret remove ".to_string();
+                            cursor = input.chars().count();
+                            menu_items = secret_completions(&input, cursor);
+                            menu_sel = 0;
+                            if menu_items.is_empty() {
+                                input.clear(); cursor = 0;
+                                let msg = "  No secrets stored. Use /secret add <name> <value>.";
+                                let (l, c) = lines!(); region.print_above(msg, &l, c); continue;
+                            }
+                            menu = true;
+                            resume_picker = false;
+                            rollback_picker = false;
+                            memory_picker = false;
+                            steer_picker = false;
+                            server_picker = false;
+                            secret_picker = true;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false;
+                            rollback_confirm = None;
+                            server_remove_confirm = None;
+                            secret_reveal_confirm = None;
+                            ui_audit.log_action("cli", "ui:/secret", "remove_picker_opened");
+                            let (l, c) = lines!(); region.render(&l, c); continue;
+                        }
+                        if sub == "/secret" {
+                            input = "/secret ".to_string();
+                            cursor = input.chars().count();
+                            menu_items = secret_completions(&input, cursor);
+                            menu_sel = 0;
+                            if menu_items.is_empty() {
+                                input.clear(); cursor = 0;
+                                let msg = "  No secrets stored. Use /secret add <name> <value>.";
+                                let (l, c) = lines!(); region.print_above(msg, &l, c); continue;
+                            }
+                            menu = true;
+                            resume_picker = false;
+                            rollback_picker = false;
+                            memory_picker = false;
+                            steer_picker = false;
+                            server_picker = false;
+                            secret_picker = true;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = false;
+                            rollback_confirm = None;
+                            server_remove_confirm = None;
+                            secret_reveal_confirm = None;
+                            ui_audit.log_action("cli", "ui:/secret", "picker_opened");
+                            let (l, c) = lines!(); region.render(&l, c); continue;
+                        }
+                        if sub.starts_with("/search ") {
+                            input = sub.clone();
+                            cursor = input.chars().count();
+                            menu_items = search_result_completions(&input, cursor);
+                            menu_sel = 0;
+                            if menu_items.is_empty() {
+                                input.clear(); cursor = 0;
+                                let msg = "  No results found.";
+                                let (l, c) = lines!(); region.print_above(msg, &l, c); continue;
+                            }
+                            menu = true;
+                            resume_picker = false;
+                            rollback_picker = false;
+                            memory_picker = false;
+                            steer_picker = false;
+                            server_picker = false;
+                            secret_picker = false;
+                            queue_picker = false;
+                            history_picker = false;
+                            search_picker = true;
+                            rollback_confirm = None;
+                            server_remove_confirm = None;
+                            secret_reveal_confirm = None;
+                            ui_audit.log_action("cli", "ui:/search", "picker_opened");
                             let (l, c) = lines!(); region.render(&l, c); continue;
                         }
                         if sub == "/help" {
-                            let help = "  commands: /queue · /queue remove <n> · /queue clear · /stop · /expand · /thinking · /quit\n  Tab or / opens the command palette · type while busy to queue · ↑/↓ history · Ctrl+C stop-or-quit · Ctrl+L redraw";
-                            let (l, c) = lines!(); region.print_above(help, &l, c); continue;
+                            let help = crate::completer::render_grouped_help();
+                            let (l, c) = lines!(); region.print_above(help.trim_end(), &l, c); continue;
                         }
                         if sub == "/stop" || sub == "/cancel" {
                             if running { let _ = wh.write_all(b"{\"cancel\":true}\n").await; }
@@ -3494,7 +5345,7 @@ async fn run_cli_tui(
                             let (l, c) = lines!(); region.print_above(&msg, &l, c); continue;
                         }
                         if sub == "/expand" || sub == "/o" {
-                            let body = if last_tool_output.trim().is_empty() { "  (no tool output to expand yet)".to_string() } else { crate::markdown::render(&last_tool_output) };
+                            let body = if last_tool_output.trim().is_empty() { "  (no tool output to expand yet)".to_string() } else { render_expand_output(&last_tool_output) };
                             let (l, c) = lines!(); region.print_above(body.trim_end(), &l, c); continue;
                         }
                         if sub == "/thinking" {
@@ -3505,6 +5356,53 @@ async fn run_cli_tui(
                             };
                             let (l, c) = lines!(); region.print_above(body.trim_end(), &l, c); continue;
                         }
+                        if sub.starts_with("/rollback ") {
+                            if let Some(target) = rollback_confirm.take() {
+                                ui_audit.log_action("cli", "ui:/rollback", &format!("confirmed {sub}"));
+                                let (l, c) = lines!();
+                                region.print_above(&format!("  {} restoring {target}", "⚠".yellow()), &l, c);
+                            }
+                        }
+                        if sub.starts_with("/server remove ") || sub.starts_with("/server rm ") {
+                            if let Some(target) = server_remove_confirm.take() {
+                                ui_audit.log_action("cli", "ui:/server", &format!("confirmed remove {target}"));
+                                let (l, c) = lines!();
+                                region.print_above(&format!("  {} removing {target}", "⚠".yellow()), &l, c);
+                            }
+                        }
+                        if sub.starts_with("/secret reveal ") {
+                            if let Some(target) = secret_reveal_confirm.take() {
+                                ui_audit.log_action("cli", "ui:/secret", &format!("confirmed reveal {target}"));
+                                let (l, c) = lines!();
+                                region.print_above(&format!("  {} revealing {target}", "⚠".yellow()), &l, c);
+                            }
+                        }
+                        if sub == "/queue remove" || sub == "/queue rm" {
+                            input = "/queue remove ".to_string();
+                            cursor = input.chars().count();
+                            menu_items = queue_remove_completions(&input, cursor, &queue);
+                            menu_sel = 0;
+                            if menu_items.is_empty() {
+                                input.clear(); cursor = 0;
+                                let msg = "  queue empty";
+                                let (l, c) = lines!(); region.print_above(msg, &l, c); continue;
+                            }
+                            menu = true;
+                            resume_picker = false;
+                            rollback_picker = false;
+                            memory_picker = false;
+                            steer_picker = false;
+                            server_picker = false;
+                            secret_picker = false;
+                            queue_picker = true;
+                            history_picker = false;
+                            search_picker = false;
+                            rollback_confirm = None;
+                            server_remove_confirm = None;
+                            secret_reveal_confirm = None;
+                            ui_audit.log_action("cli", "ui:/queue", "remove_picker_opened");
+                            let (l, c) = lines!(); region.render(&l, c); continue;
+                        }
                         if sub == "/queue" {
                             let body = if queue.is_empty() { "  queue empty".to_string() } else {
                                 let mut s = String::from("  queued:");
@@ -3513,9 +5411,10 @@ async fn run_cli_tui(
                             };
                             let (l, c) = lines!(); region.print_above(&body, &l, c); continue;
                         }
-                        if sub == "/queue clear" { let n = queue.len(); queue.clear(); let (l, c) = lines!(); region.print_above(&format!("  cleared {n} queued"), &l, c); continue; }
+                        if sub == "/queue clear" { let n = queue.len(); queue.clear(); ui_audit.log_action("cli", "ui:/queue", &format!("cleared {n} queued instruction(s)")); let (l, c) = lines!(); region.print_above(&format!("  cleared {n} queued"), &l, c); continue; }
                         if let Some(arg) = sub.strip_prefix("/queue remove ").or_else(|| sub.strip_prefix("/queue rm ")) {
                             let msg = queue_remove(&mut queue, arg);
+                            ui_audit.log_action("cli", "ui:/queue", &msg);
                             let (l, c) = lines!(); region.print_above(&format!("  {msg}"), &l, c); continue;
                         }
                         if running {
@@ -3526,7 +5425,7 @@ async fn run_cli_tui(
                         } else {
                             let req = serde_json::json!({ "line": sub }).to_string();
                             if wh.write_all(req.as_bytes()).await.is_err() || wh.write_all(b"\n").await.is_err() {
-                                region.clear(); eprintln!("gateway connection lost."); return Ok(());
+                                region.clear(); print_gateway_disconnect_guidance("lost"); return Ok(());
                             }
                             running = true; started = std::time::Instant::now(); label = "working…".to_string(); reasoning.clear();
                             cancelling = false;
@@ -3594,6 +5493,7 @@ pub async fn run_chat_oneshot(prompt: String) -> Result<()> {
                     let _ = wh.write_all(m.as_bytes()).await;
                     let _ = wh.write_all(b"\n").await;
                 }
+                Ok(AgentEvent::SteerList { .. }) => {}
                 Ok(AgentEvent::ClarifyBatch { questions }) => {
                     let mut answers: Vec<String> = Vec::new();
                     for (qi, q) in questions.iter().enumerate() {

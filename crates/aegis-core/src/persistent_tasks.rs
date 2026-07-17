@@ -9,9 +9,9 @@ use std::path::PathBuf;
 pub struct PersistentTask {
     pub id: String,
     pub name: String,
-    pub prompt: String,       // agent 要持续执行的任务描述
-    pub trigger: String,      // "cron:*/5 * * * *" 或 "webhook:8080" 或 "manual"
-    pub status: String,       // "active" | "stopped" | "done" | "failed"
+    pub prompt: String,  // agent 要持续执行的任务描述
+    pub trigger: String, // "cron:*/5 * * * *" 或 "webhook:8080" 或 "manual"
+    pub status: String,  // "active" | "stopped" | "done" | "failed"
     pub restart_count: u32,
     pub last_run: Option<String>, // ISO 8601
     /// Session this task is bound to. Reused on resume so the todo list,
@@ -124,14 +124,17 @@ impl PersistentTaskManager {
 
     /// Return only tasks with "active" status.
     pub fn load_active(&self) -> Vec<PersistentTask> {
-        self.list().into_iter().filter(|t| t.status == "active").collect()
+        self.list()
+            .into_iter()
+            .filter(|t| t.status == "active")
+            .collect()
     }
 
     /// Find the active task bound to a given session, if any.
     pub fn find_active_by_session(&self, session_id: &str) -> Option<PersistentTask> {
-        self.list().into_iter().find(|t| {
-            t.status == "active" && t.session_id.as_deref() == Some(session_id)
-        })
+        self.list()
+            .into_iter()
+            .find(|t| t.status == "active" && t.session_id.as_deref() == Some(session_id))
     }
 
     /// Update the task's last_run timestamp to now.
@@ -156,7 +159,11 @@ impl PersistentTaskManager {
     }
 
     /// Set a free-text progress checkpoint for the active task in a session.
-    pub fn set_progress_by_session(&self, session_id: &str, progress: &str) -> Result<Option<String>> {
+    pub fn set_progress_by_session(
+        &self,
+        session_id: &str,
+        progress: &str,
+    ) -> Result<Option<String>> {
         if let Some(mut task) = self.find_active_by_session(session_id) {
             task.progress = Some(progress.to_string());
             task.last_run = Some(chrono::Utc::now().to_rfc3339());
@@ -241,7 +248,9 @@ impl Tool for TaskTool {
                     .or_else(|| args["prompt"].as_str())
                     .unwrap_or("");
                 if goal.trim().is_empty() {
-                    return Ok("Error: 'goal' is required to register a resumable task.".to_string());
+                    return Ok(
+                        "Error: 'goal' is required to register a resumable task.".to_string()
+                    );
                 }
                 let t = mgr.register(name, goal, &ctx.session_id)?;
                 Ok(format!(
@@ -253,11 +262,16 @@ impl Tool for TaskTool {
                 let note = args["note"].as_str().unwrap_or("");
                 match mgr.set_progress_by_session(&ctx.session_id, note)? {
                     Some(name) => Ok(format!("Checkpoint saved for '{name}'.")),
-                    None => Ok("No resumable task registered in this session (use action=register first).".to_string()),
+                    None => Ok(
+                        "No resumable task registered in this session (use action=register first)."
+                            .to_string(),
+                    ),
                 }
             }
             "complete" => match mgr.complete_by_session(&ctx.session_id)? {
-                Some(name) => Ok(format!("Task '{name}' marked complete; it will not resume again.")),
+                Some(name) => Ok(format!(
+                    "Task '{name}' marked complete; it will not resume again."
+                )),
                 None => Ok("No resumable task registered in this session.".to_string()),
             },
             _ => {

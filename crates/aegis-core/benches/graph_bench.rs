@@ -1,12 +1,11 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use std::sync::Arc;
+use aegis_core::graph::{
+    Aggregate, Channel, Checkpoint, CheckpointSaver, GraphBuilder, GraphNode, GraphState,
+    InMemoryCheckpointSaver, LastValue,
+};
 use anyhow::Result;
 use async_trait::async_trait;
-use aegis_core::graph::{
-    GraphBuilder, GraphState, GraphNode,
-    LastValue, Aggregate, Channel,
-    InMemoryCheckpointSaver, Checkpoint, CheckpointSaver,
-};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use std::sync::Arc;
 
 #[derive(Clone, Default)]
 struct BenchState {
@@ -74,7 +73,11 @@ fn bench_graph_builder_compile(c: &mut Criterion) {
                 .add_node("a", Arc::new(NoopNode("a".into())))
                 .add_node("b", Arc::new(NoopNode("b".into())))
                 .add_conditional_edge("start", |s: &BenchState| {
-                    if s.counter > 0 { "a".to_string() } else { "b".to_string() }
+                    if s.counter > 0 {
+                        "a".to_string()
+                    } else {
+                        "b".to_string()
+                    }
                 })
                 .add_edge("a", "__end__")
                 .add_edge("b", "__end__")

@@ -93,7 +93,11 @@ impl Scheduler {
             })
             .collect();
 
-        scores.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        scores.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         scores
     }
 
@@ -104,7 +108,9 @@ impl Scheduler {
 
     /// Compute the optimal number of concurrent workers given available resources.
     pub fn optimal_concurrency(&self) -> usize {
-        (self.cpu_cores - 1).max(1).min(self.available_memory_mb / 100)
+        (self.cpu_cores - 1)
+            .max(1)
+            .min(self.available_memory_mb / 100)
     }
 }
 
@@ -112,7 +118,12 @@ impl Scheduler {
 mod tests {
     use super::*;
 
-    fn make_worker(id: &str, active: Option<&str>, completed: Vec<&str>, files: Vec<&str>) -> WorkerState {
+    fn make_worker(
+        id: &str,
+        active: Option<&str>,
+        completed: Vec<&str>,
+        files: Vec<&str>,
+    ) -> WorkerState {
         WorkerState {
             id: id.to_string(),
             active_task: active.map(|s| s.to_string()),
@@ -181,8 +192,16 @@ mod tests {
     fn test_best_worker() {
         let s = Scheduler::new();
         let scores = vec![
-            AffinityScore { worker_id: "w1".into(), score: 5.0, reasons: vec![] },
-            AffinityScore { worker_id: "w2".into(), score: 2.0, reasons: vec![] },
+            AffinityScore {
+                worker_id: "w1".into(),
+                score: 5.0,
+                reasons: vec![],
+            },
+            AffinityScore {
+                worker_id: "w2".into(),
+                score: 2.0,
+                reasons: vec![],
+            },
         ];
         assert_eq!(s.best_worker(&scores).unwrap().worker_id, "w1");
     }

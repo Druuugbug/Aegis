@@ -7,14 +7,14 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-aegis-types = { path = "../aegis-types", version = "1.0.6" }
-aegis-security = { path = "../aegis-security", version = "1.0.6" }
-aegis-sandbox = { path = "../aegis-sandbox", version = "1.0.6" }
-aegis-a2a = { path = "../aegis-a2a", version = "1.0.6" }
-aegis-memory = { path = "../aegis-memory", version = "1.0.6", package = "aegis-agent-memory" }
-aegis-record = { path = "../aegis-record", version = "1.0.6" }
-aegis-feedback = { path = "../aegis-feedback", version = "1.0.6" }
-aegis-lsp = { path = "../aegis-lsp", version = "1.0.6" }
+aegis-types = { path = "../aegis-types", version = "1.0.7" }
+aegis-security = { path = "../aegis-security", version = "1.0.7" }
+aegis-sandbox = { path = "../aegis-sandbox", version = "1.0.7" }
+aegis-a2a = { path = "../aegis-a2a", version = "1.0.7" }
+aegis-memory = { path = "../aegis-memory", version = "1.0.7", package = "aegis-agent-memory" }
+aegis-record = { path = "../aegis-record", version = "1.0.7" }
+aegis-feedback = { path = "../aegis-feedback", version = "1.0.7" }
+aegis-lsp = { path = "../aegis-lsp", version = "1.0.7" }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
@@ -45,9 +45,8 @@ calamine = "0.36"
 dotext = "0.1"
 
 # ── First-tier server/utility tools ──
-# meval: MIT/Unlicense math evaluator (calc). sysinfo: cross-platform host
-# metrics (system_status). http_request/list_files reuse reqwest/std — no deps.
-meval = "0.2"
+# calc uses an in-tree parser. sysinfo provides cross-platform host metrics
+# (system_status). http_request/list_files reuse reqwest/std — no deps.
 sysinfo = "0.39"
 
 [target.'cfg(unix)'.dependencies]

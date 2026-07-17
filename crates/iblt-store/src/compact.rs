@@ -17,8 +17,6 @@ pub enum CompactionStrategy {
     Overlap,
 }
 
-
-
 /// Compaction result.
 #[derive(Debug, Clone, Default)]
 pub struct CompactionResult {
@@ -103,10 +101,7 @@ impl CompactionEngine {
         }
 
         // Add compacted run
-        let entries: Vec<crate::types::Entry> = deduped
-            .iter()
-            .map(|e| e.to_hot_entry())
-            .collect();
+        let entries: Vec<crate::types::Entry> = deduped.iter().map(|e| e.to_hot_entry()).collect();
         if !entries.is_empty() {
             cold.add_run(entries);
         }
@@ -211,9 +206,13 @@ mod tests {
     fn compact_cold_tier() {
         let mut cold = ColdTier::new(1000);
         let entries1: Vec<crate::types::Entry> = make_cold_entries(&["a", "b"])
-            .iter().map(|e| e.to_hot_entry()).collect();
+            .iter()
+            .map(|e| e.to_hot_entry())
+            .collect();
         let entries2: Vec<crate::types::Entry> = make_cold_entries(&["b", "c"])
-            .iter().map(|e| e.to_hot_entry()).collect();
+            .iter()
+            .map(|e| e.to_hot_entry())
+            .collect();
         cold.add_run(entries1);
         cold.add_run(entries2);
 

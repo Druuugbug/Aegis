@@ -113,8 +113,7 @@ impl MetricsRegistry {
 
     /// Register a counter metric.
     pub fn register_counter(&mut self, name: &str) {
-        self.counters
-            .insert(name.to_string(), AtomicU64::new(0));
+        self.counters.insert(name.to_string(), AtomicU64::new(0));
     }
 
     /// Register a gauge metric.

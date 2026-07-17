@@ -107,7 +107,8 @@ impl RouteCheapnessEstimate {
         monthly_price_micros: u64,
         included_requests_per_month: Option<u64>,
     ) -> Self {
-        let estimated = included_requests_per_month.map(|reqs| monthly_price_micros.checked_div(reqs).unwrap_or(0));
+        let estimated = included_requests_per_month
+            .map(|reqs| monthly_price_micros.checked_div(reqs).unwrap_or(0));
         Self {
             billing_kind: BillingKind::Subscription,
             source,
@@ -167,11 +168,10 @@ pub fn estimate_request_cost(
         BillingKind::Metered => {
             let input_price = cheapness.input_price_per_mtok_micros? as f64;
             let output_price = cheapness.output_price_per_mtok_micros? as f64;
-            let cache_price = cheapness
-                .cache_read_price_per_mtok_micros
-                .unwrap_or(0) as f64;
+            let cache_price = cheapness.cache_read_price_per_mtok_micros.unwrap_or(0) as f64;
             let normal_input = input_tokens.saturating_sub(cache_read_tokens) as f64;
-            let cost = (normal_input * input_price + cache_read_tokens as f64 * cache_price
+            let cost = (normal_input * input_price
+                + cache_read_tokens as f64 * cache_price
                 + output_tokens as f64 * output_price)
                 / 1_000_000.0;
             Some(CostEstimate {
@@ -259,8 +259,8 @@ mod tests {
             cheapness: Some(RouteCheapnessEstimate::metered(
                 CostSource::PublicApiPricing,
                 CostConfidence::High,
-                cost,       // input price per mtok
-                cost * 3,   // output price
+                cost,     // input price per mtok
+                cost * 3, // output price
                 None,
             )),
         }
@@ -320,7 +320,11 @@ mod tests {
     fn test_estimate_request_cost_with_cache() {
         let route = make_route("claude", "anthropic", 3_000_000);
         let mut route = route;
-        route.cheapness.as_mut().unwrap().cache_read_price_per_mtok_micros = Some(300_000);
+        route
+            .cheapness
+            .as_mut()
+            .unwrap()
+            .cache_read_price_per_mtok_micros = Some(300_000);
 
         let estimate = estimate_request_cost(&route, 25_000, 5_000, 20_000).unwrap();
         // normal input: 5k * 3M / 1M = 15k

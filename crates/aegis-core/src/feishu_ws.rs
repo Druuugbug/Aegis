@@ -177,9 +177,9 @@ impl Frame {
                     }
                 }
                 2 => {
-                    let len =
-                        read_varint(data, &mut pos).ok_or_else(|| anyhow!("frame: bad len"))?
-                            as usize;
+                    let len = read_varint(data, &mut pos)
+                        .ok_or_else(|| anyhow!("frame: bad len"))?
+                        as usize;
                     let end = pos
                         .checked_add(len)
                         .filter(|e| *e <= data.len())
@@ -344,10 +344,13 @@ impl Reassembler {
         if sum == 0 || seq >= sum {
             return None; // malformed
         }
-        let entry = self.buf.entry(message_id.to_string()).or_insert_with(|| Pending {
-            parts: vec![None; sum],
-            inserted: Instant::now(),
-        });
+        let entry = self
+            .buf
+            .entry(message_id.to_string())
+            .or_insert_with(|| Pending {
+                parts: vec![None; sum],
+                inserted: Instant::now(),
+            });
         // A late/duplicate packet with a mismatched sum: reset the buffer.
         if entry.parts.len() != sum {
             entry.parts = vec![None; sum];
@@ -463,8 +466,7 @@ mod tests {
 
     #[test]
     fn parse_conn_url_extracts_ids() {
-        let (sid, did) =
-            parse_conn_url("wss://host/path?device_id=dev-abc&service_id=100&foo=bar");
+        let (sid, did) = parse_conn_url("wss://host/path?device_id=dev-abc&service_id=100&foo=bar");
         assert_eq!(sid, 100);
         assert_eq!(did, "dev-abc");
     }

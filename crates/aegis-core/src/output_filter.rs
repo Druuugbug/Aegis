@@ -41,11 +41,7 @@ impl OutputFilterRegistry {
                 if let Some(filtered) = f.filter(tool_name, &args, &result) {
                     let before = result.len();
                     result = filtered;
-                    tracing::debug!(
-                        before,
-                        after = result.len(),
-                        "output filter applied"
-                    );
+                    tracing::debug!(before, after = result.len(), "output filter applied");
                 }
             }
         }
@@ -69,7 +65,10 @@ fn extract_command(args: &Value) -> Option<&str> {
 }
 
 fn is_bash_tool(tool_name: &str) -> bool {
-    matches!(tool_name, "bash" | "shell" | "execute_command" | "run_command")
+    matches!(
+        tool_name,
+        "bash" | "shell" | "execute_command" | "run_command"
+    )
 }
 
 // ── StripAnsiFilter ──
@@ -204,7 +203,12 @@ impl OutputFilter for CompilerFilter {
                 kept.push(line.to_string());
             } else if line.contains("warning:") || line.contains("warn[") {
                 warning_count += 1;
-                let key = line.split("warning:").last().unwrap_or(line).trim().to_string();
+                let key = line
+                    .split("warning:")
+                    .last()
+                    .unwrap_or(line)
+                    .trim()
+                    .to_string();
                 if seen_warnings.contains(&key) {
                     deduped_count += 1;
                     skip_until_empty = true;
@@ -226,7 +230,9 @@ impl OutputFilter for CompilerFilter {
 
         if deduped_count > 0 {
             kept.push(String::new());
-            kept.push(format!("({deduped_count} duplicate warnings hidden, {warning_count} total)"));
+            kept.push(format!(
+                "({deduped_count} duplicate warnings hidden, {warning_count} total)"
+            ));
         }
 
         let filtered = kept.join("\n");
@@ -293,7 +299,8 @@ impl OutputFilter for GitDiffFilter {
         let mut truncated_hunks = 0u32;
 
         for line in &lines {
-            if line.starts_with("diff --git") || line.starts_with("---") || line.starts_with("+++") {
+            if line.starts_with("diff --git") || line.starts_with("---") || line.starts_with("+++")
+            {
                 hunk_lines = 0;
                 kept.push(line);
             } else if line.starts_with("@@") {
@@ -316,7 +323,9 @@ impl OutputFilter for GitDiffFilter {
             return None;
         }
         let mut result = kept.join("\n");
-        result.push_str(&format!("\n({truncated_hunks} hunks truncated to {DIFF_HUNK_MAX_LINES} lines each)"));
+        result.push_str(&format!(
+            "\n({truncated_hunks} hunks truncated to {DIFF_HUNK_MAX_LINES} lines each)"
+        ));
         Some(result)
     }
 }
@@ -333,7 +342,11 @@ impl OutputFilter for LsTreeFilter {
             return false;
         }
         extract_command(args)
-            .map(|c| (c.contains("ls -") && c.contains('R')) || c.contains("find .") || c.contains("tree"))
+            .map(|c| {
+                (c.contains("ls -") && c.contains('R'))
+                    || c.contains("find .")
+                    || c.contains("tree")
+            })
             .unwrap_or(false)
     }
 
@@ -344,7 +357,9 @@ impl OutputFilter for LsTreeFilter {
         }
         let mut result = lines[..LS_MAX_ENTRIES].join("\n");
         let remaining = lines.len() - LS_MAX_ENTRIES;
-        result.push_str(&format!("\n\n(+{remaining} more entries, output truncated)"));
+        result.push_str(&format!(
+            "\n\n(+{remaining} more entries, output truncated)"
+        ));
         Some(result)
     }
 }
@@ -367,8 +382,12 @@ struct FilterSettings {
     max_output_chars: usize,
 }
 
-fn default_enabled() -> bool { true }
-fn default_max_output() -> usize { 6000 }
+fn default_enabled() -> bool {
+    true
+}
+fn default_max_output() -> usize {
+    6000
+}
 
 #[derive(serde::Deserialize, Clone)]
 #[allow(dead_code)]
@@ -384,7 +403,9 @@ struct FilterRule {
     max_lines: usize,
 }
 
-fn default_rule_max_lines() -> usize { 100 }
+fn default_rule_max_lines() -> usize {
+    100
+}
 
 pub struct UserFilter {
     rule: FilterRule,
@@ -394,9 +415,19 @@ pub struct UserFilter {
 
 impl UserFilter {
     fn from_rule(rule: FilterRule) -> Self {
-        let keep_re = rule.keep_pattern.as_ref().and_then(|p| regex::Regex::new(p).ok());
-        let drop_re = rule.drop_pattern.as_ref().and_then(|p| regex::Regex::new(p).ok());
-        Self { rule, keep_re, drop_re }
+        let keep_re = rule
+            .keep_pattern
+            .as_ref()
+            .and_then(|p| regex::Regex::new(p).ok());
+        let drop_re = rule
+            .drop_pattern
+            .as_ref()
+            .and_then(|p| regex::Regex::new(p).ok());
+        Self {
+            rule,
+            keep_re,
+            drop_re,
+        }
     }
 }
 
@@ -417,7 +448,12 @@ impl OutputFilter for UserFilter {
             let mut kept = Vec::new();
             for (i, line) in lines.iter().enumerate() {
                 if re.is_match(line) {
-                    if i > 0 && !kept.last().map(|l: &&str| lines.get(i - 1) == Some(l)).unwrap_or(true) {
+                    if i > 0
+                        && !kept
+                            .last()
+                            .map(|l: &&str| lines.get(i - 1) == Some(l))
+                            .unwrap_or(true)
+                    {
                         kept.push(lines[i - 1]);
                     }
                     kept.push(line);
@@ -450,8 +486,7 @@ impl OutputFilter for UserFilter {
 }
 
 fn filters_config_path() -> std::path::PathBuf {
-    aegis_types::paths::config_dir()
-        .join("filters.toml")
+    aegis_types::paths::config_dir().join("filters.toml")
 }
 
 impl OutputFilterRegistry {
@@ -504,7 +539,9 @@ mod tests {
         let args = bash_args("cargo test");
         let output = (0..50)
             .map(|i| format!("test test_{i} ... ok"))
-            .chain(std::iter::once("test result: ok. 50 passed; 0 failed; 0 ignored".to_string()))
+            .chain(std::iter::once(
+                "test result: ok. 50 passed; 0 failed; 0 ignored".to_string(),
+            ))
             .collect::<Vec<_>>()
             .join("\n");
         let filtered = f.filter("bash", &args, &output).unwrap();
@@ -517,9 +554,7 @@ mod tests {
     fn test_cargo_test_filter_failures_kept() {
         let f = CargoTestFilter;
         let args = bash_args("cargo test");
-        let mut lines: Vec<String> = (0..30)
-            .map(|i| format!("test test_{i} ... ok"))
-            .collect();
+        let mut lines: Vec<String> = (0..30).map(|i| format!("test test_{i} ... ok")).collect();
         lines.push("failures:".to_string());
         lines.push("    test_bad: assertion failed".to_string());
         lines.push("".to_string());

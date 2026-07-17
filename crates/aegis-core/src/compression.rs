@@ -18,17 +18,9 @@ pub enum CompactionTrigger {
 #[derive(Debug, PartialEq)]
 pub enum CompactionAction {
     None,
-    SoftCompacted {
-        trigger: String,
-        summarized: usize,
-    },
-    HardCompacted {
-        dropped: usize,
-    },
-    EmergencyCompacted {
-        kept: usize,
-        dropped: usize,
-    },
+    SoftCompacted { trigger: String, summarized: usize },
+    HardCompacted { dropped: usize },
+    EmergencyCompacted { kept: usize, dropped: usize },
 }
 
 /// A single compression turn: either a real message or a generated summary.
@@ -487,7 +479,9 @@ pub fn fold_completed_tool_sequences(messages: &[Message], staleness_turns: usiz
                 let tool_names: Vec<String> = messages[seq_start..seq_end]
                     .iter()
                     .filter_map(|m| {
-                        m.tool_calls.as_ref().and_then(|tcs| tcs.first().map(|tc| tc.name.clone()))
+                        m.tool_calls
+                            .as_ref()
+                            .and_then(|tcs| tcs.first().map(|tc| tc.name.clone()))
                     })
                     .collect();
                 let last_result = messages[seq_start..seq_end]

@@ -22,11 +22,23 @@ pub struct AnthropicProvider {
 impl AnthropicProvider {
     /// Creates a new `instance`.
     pub fn new(api_key: String, model: String, max_tokens: u32, timeout_secs: u64) -> Self {
-        Self::new_with_base_url(api_key, model, max_tokens, timeout_secs, "https://api.anthropic.com".to_string())
+        Self::new_with_base_url(
+            api_key,
+            model,
+            max_tokens,
+            timeout_secs,
+            "https://api.anthropic.com".to_string(),
+        )
     }
 
     /// New with base url.
-    pub fn new_with_base_url(api_key: String, model: String, max_tokens: u32, timeout_secs: u64, base_url: String) -> Self {
+    pub fn new_with_base_url(
+        api_key: String,
+        model: String,
+        max_tokens: u32,
+        timeout_secs: u64,
+        base_url: String,
+    ) -> Self {
         // See `openai::OpenAiProvider::new` for the rationale: `.timeout()`
         // at the client level would kill legitimate long streaming
         // generations mid-body with `error decoding response body`. Use
@@ -223,7 +235,9 @@ impl Provider for AnthropicProvider {
         let text = resp.text().await.context("reading Anthropic response")?;
         if !status.is_success() {
             if status.as_u16() == 401 {
-                anyhow::bail!("API key unauthorized (401). Please check your API key configuration.");
+                anyhow::bail!(
+                    "API key unauthorized (401). Please check your API key configuration."
+                );
             }
             if is_rate_limited(status.as_u16()) {
                 let duration = parse_retry_after(&headers);
@@ -258,7 +272,9 @@ impl Provider for AnthropicProvider {
             let headers = resp.headers().clone();
             let text = resp.text().await.unwrap_or_default();
             if status.as_u16() == 401 {
-                anyhow::bail!("API key unauthorized (401). Please check your API key configuration.");
+                anyhow::bail!(
+                    "API key unauthorized (401). Please check your API key configuration."
+                );
             }
             if is_rate_limited(status.as_u16()) {
                 let duration = parse_retry_after(&headers);
@@ -373,8 +389,14 @@ impl Provider for AnthropicProvider {
                             if let Some(u) = json["message"].get("usage") {
                                 usage = Some(Usage {
                                     input_tokens: u["input_tokens"].as_u64().unwrap_or(0) as u32,
-                                    cache_read_tokens: u["cache_read_input_tokens"].as_u64().unwrap_or(0) as u32,
-                                    cache_write_tokens: u["cache_creation_input_tokens"].as_u64().unwrap_or(0) as u32,
+                                    cache_read_tokens: u["cache_read_input_tokens"]
+                                        .as_u64()
+                                        .unwrap_or(0)
+                                        as u32,
+                                    cache_write_tokens: u["cache_creation_input_tokens"]
+                                        .as_u64()
+                                        .unwrap_or(0)
+                                        as u32,
                                     ..Default::default()
                                 });
                             }
@@ -418,7 +440,6 @@ impl Provider for AnthropicProvider {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -430,7 +451,10 @@ mod tests {
         let msgs = vec![Message::system("system text"), Message::user("hi")];
         let (_, body) = p.build_body(&msgs, None, false);
         let sys = &body["system"];
-        assert!(sys.is_array(), "system must be a content-block array for caching");
+        assert!(
+            sys.is_array(),
+            "system must be a content-block array for caching"
+        );
         assert_eq!(sys[0]["type"], "text");
         assert_eq!(sys[0]["text"], "system text");
         assert_eq!(sys[0]["cache_control"]["type"], "ephemeral");

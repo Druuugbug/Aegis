@@ -268,9 +268,7 @@ mod tests {
     fn noop_runs_command() {
         let cmd = SandboxCommand::new("true");
         let r = NoopRunner::new();
-        let child = r
-            .spawn(cmd, &SandboxPolicy::default())
-            .expect("spawn true");
+        let child = r.spawn(cmd, &SandboxPolicy::default()).expect("spawn true");
         let out = child.wait_with_output().expect("wait");
         assert!(out.status.success());
     }

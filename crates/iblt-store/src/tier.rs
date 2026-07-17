@@ -135,7 +135,8 @@ mod tests {
         let cfg = test_config();
         let mut mgr = TierManager::new(&cfg);
         for i in 0..10 {
-            mgr.put(Key::from_str(&format!("k{}", i)), Value::from_str("v")).unwrap();
+            mgr.put(Key::from_str(&format!("k{}", i)), Value::from_str("v"))
+                .unwrap();
         }
         assert!(!mgr.cold.is_empty() || mgr.hot.len() <= cfg.hot_capacity);
         assert!(mgr.drain_count() > 0);
@@ -146,12 +147,22 @@ mod tests {
         let cfg = test_config();
         let mut mgr = TierManager::new(&cfg);
         for i in 0..10 {
-            mgr.put(Key::from_str(&format!("k{}", i)), Value::from_str("v")).unwrap();
+            mgr.put(Key::from_str(&format!("k{}", i)), Value::from_str("v"))
+                .unwrap();
         }
         // Find a key in cold tier and promote it
-        let cold_keys: Vec<Key> = mgr.cold.run_ids().iter().flat_map(|&rid| {
-            mgr.cold.list_run_entries(rid).into_iter().map(|e| e.key).collect::<Vec<_>>()
-        }).collect();
+        let cold_keys: Vec<Key> = mgr
+            .cold
+            .run_ids()
+            .iter()
+            .flat_map(|&rid| {
+                mgr.cold
+                    .list_run_entries(rid)
+                    .into_iter()
+                    .map(|e| e.key)
+                    .collect::<Vec<_>>()
+            })
+            .collect();
         if let Some(key) = cold_keys.first() {
             let _ = mgr.get(key).unwrap();
             assert!(mgr.promote_count() > 0);

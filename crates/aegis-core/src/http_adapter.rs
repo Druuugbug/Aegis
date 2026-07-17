@@ -26,8 +26,14 @@ impl HttpPlatformAdapter {
         let (inbound_tx, inbound_rx) = mpsc::channel(32);
         let (outbound_tx, outbound_rx) = mpsc::channel(32);
         (
-            Self { inbound_rx, outbound_tx },
-            HttpAdapterHandle { inbound_tx, outbound_rx },
+            Self {
+                inbound_rx,
+                outbound_tx,
+            },
+            HttpAdapterHandle {
+                inbound_tx,
+                outbound_rx,
+            },
         )
     }
 }

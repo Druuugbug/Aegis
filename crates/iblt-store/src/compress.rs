@@ -16,8 +16,6 @@ pub enum Algorithm {
     Lz4Block,
 }
 
-
-
 /// Compress data using the specified algorithm.
 pub fn compress(data: &[u8], algorithm: Algorithm, level: u8) -> Result<Vec<u8>, StoreError> {
     match algorithm {

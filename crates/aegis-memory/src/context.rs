@@ -167,7 +167,9 @@ mod tests {
 
     #[test]
     fn context_section_priority_order() {
-        let identity = ContextSection::Identity { content: "I am Aegis".into() };
+        let identity = ContextSection::Identity {
+            content: "I am Aegis".into(),
+        };
         let bootstrap = ContextSection::Bootstrap { files: vec![] };
         let memory = ContextSection::Memory { results: vec![] };
         assert!(identity.priority() < bootstrap.priority());
@@ -176,7 +178,9 @@ mod tests {
 
     #[test]
     fn context_section_render_identity() {
-        let section = ContextSection::Identity { content: "I am Aegis".into() };
+        let section = ContextSection::Identity {
+            content: "I am Aegis".into(),
+        };
         let rendered = section.render();
         assert!(rendered.contains("# Identity"));
         assert!(rendered.contains("I am Aegis"));
@@ -207,8 +211,12 @@ mod tests {
     #[test]
     fn context_builder_respects_budget() {
         let builder = ContextBuilder::new(10) // very small budget
-            .with_section(ContextSection::Identity { content: "I am Aegis the runtime".into() })
-            .with_section(ContextSection::Bootstrap { files: vec![("f".into(), "content".into())] });
+            .with_section(ContextSection::Identity {
+                content: "I am Aegis the runtime".into(),
+            })
+            .with_section(ContextSection::Bootstrap {
+                files: vec![("f".into(), "content".into())],
+            });
         let output = builder.build();
         // With tiny budget, at most first section fits (and maybe partial last)
         assert!(!output.is_empty());
@@ -226,11 +234,16 @@ mod tests {
                     confidence: 0.8,
                 }],
             })
-            .with_section(ContextSection::Identity { content: "I am Aegis".into() });
+            .with_section(ContextSection::Identity {
+                content: "I am Aegis".into(),
+            });
         let output = builder.build();
         let identity_pos = output.find("I am Aegis").unwrap();
         let memory_pos = output.find("some memory").unwrap();
-        assert!(identity_pos < memory_pos, "identity should come before memory");
+        assert!(
+            identity_pos < memory_pos,
+            "identity should come before memory"
+        );
     }
 
     #[test]
@@ -243,8 +256,18 @@ mod tests {
     #[test]
     fn context_section_render_partial_memory() {
         let results = vec![
-            MemoryResult { content: "a".repeat(500), score: 0.9, source: "s1".into(), confidence: 0.8 },
-            MemoryResult { content: "b".repeat(500), score: 0.5, source: "s2".into(), confidence: 0.7 },
+            MemoryResult {
+                content: "a".repeat(500),
+                score: 0.9,
+                source: "s1".into(),
+                confidence: 0.8,
+            },
+            MemoryResult {
+                content: "b".repeat(500),
+                score: 0.5,
+                source: "s2".into(),
+                confidence: 0.7,
+            },
         ];
         let section = ContextSection::Memory { results };
         // Very small budget should truncate

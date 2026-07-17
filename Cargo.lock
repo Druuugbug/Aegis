@@ -28,7 +28,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-a2a"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "aegis-security",
  "anyhow",
@@ -48,7 +48,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-agent"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "aegis-a2a",
  "aegis-agent-core",
@@ -97,7 +97,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-agent-core"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "aegis-a2a",
  "aegis-agent-memory",
@@ -141,7 +141,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-agent-memory"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "aegis-provider",
  "aegis-types",
@@ -165,7 +165,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-browser"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "anyhow",
  "base64",
@@ -180,7 +180,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-feedback"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "aegis-types",
  "anyhow",
@@ -196,7 +196,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-goals"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "aegis-types",
  "anyhow",
@@ -211,7 +211,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-import"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "aegis-types",
  "anyhow",
@@ -223,7 +223,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-learning"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "aegis-types",
  "anyhow",
@@ -242,7 +242,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-lsp"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "anyhow",
  "serde",
@@ -254,7 +254,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-mcp"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "aegis-agent-memory",
  "aegis-tools",
@@ -273,7 +273,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-perception"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -287,7 +287,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-provider"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "aegis-types",
  "anyhow",
@@ -307,7 +307,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-record"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "anyhow",
  "chrono",
@@ -322,7 +322,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-sandbox"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "anyhow",
  "landlock",
@@ -339,7 +339,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-security"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "aegis-sandbox",
  "aegis-types",
@@ -355,7 +355,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-selfdev"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "anyhow",
  "chrono",
@@ -367,7 +367,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-tools"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "aegis-a2a",
  "aegis-agent-memory",
@@ -388,7 +388,6 @@ dependencies = [
  "futures",
  "htmd",
  "libc",
- "meval",
  "pdf-extract",
  "regex",
  "reqwest",
@@ -405,7 +404,7 @@ dependencies = [
 
 [[package]]
 name = "aegis-types"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "dirs-next",
  "serde",
@@ -1891,7 +1890,7 @@ dependencies = [
 
 [[package]]
 name = "iblt"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "anyhow",
  "bytes",
@@ -1907,7 +1906,7 @@ dependencies = [
 
 [[package]]
 name = "iblt-store"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "anyhow",
  "bytes",
@@ -2332,16 +2331,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
-name = "meval"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f79496a5651c8d57cd033c5add8ca7ee4e3d5f7587a4777484640d9cb60392d9"
-dependencies = [
- "fnv",
- "nom 1.2.4",
-]
-
-[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2411,12 +2400,6 @@ dependencies = [
  "cfg_aliases",
  "libc",
 ]
-
-[[package]]
-name = "nom"
-version = "1.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5b8c256fd9471521bcb84c3cdba98921497f1a331cbc15b8030fc63b82050ce"
 
 [[package]]
 name = "nom"

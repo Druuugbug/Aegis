@@ -211,7 +211,12 @@ mod tests {
 
     fn make_entries(count: usize) -> Vec<Entry> {
         (0..count)
-            .map(|i| Entry::new(Key::from_str(&format!("key{}", i)), Value::from_str(&format!("val{}", i))))
+            .map(|i| {
+                Entry::new(
+                    Key::from_str(&format!("key{}", i)),
+                    Value::from_str(&format!("val{}", i)),
+                )
+            })
             .collect()
     }
 

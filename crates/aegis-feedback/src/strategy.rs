@@ -172,9 +172,7 @@ impl Strategy {
         strategy.file_path = file_path;
         // Decode previous_body from base64
         if let Some(ref b64) = strategy.previous_body_b64 {
-            strategy.previous_body = Some(
-                base64_decode(b64).unwrap_or_else(|| b64.clone()),
-            );
+            strategy.previous_body = Some(base64_decode(b64).unwrap_or_else(|| b64.clone()));
         }
         Ok(strategy)
     }
@@ -245,7 +243,10 @@ fn serde_yaml_parse(yaml: &str) -> Result<serde_json::Value> {
                     current_map = Some(serde_json::Map::new());
                 }
                 if let Some((k, v)) = parse_yaml_kv(trimmed) {
-                    current_map.as_mut().expect("current_map was just initialized").insert(k, v);
+                    current_map
+                        .as_mut()
+                        .expect("current_map was just initialized")
+                        .insert(k, v);
                 }
                 continue;
             }
@@ -422,11 +423,23 @@ fn collect_md_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
 fn sanitize_id(id: &str) -> String {
     let s: String = id
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
     let s = s.trim_matches('-').to_string();
     if s.is_empty() {
-        format!("skill-{:x}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0))
+        format!(
+            "skill-{:x}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        )
     } else {
         s
     }
@@ -487,7 +500,8 @@ impl StrategyManager {
             if path.exists() {
                 continue; // respect user edits / removal
             }
-            if std::fs::create_dir_all(&self.dir).is_ok() && std::fs::write(&path, content).is_ok() {
+            if std::fs::create_dir_all(&self.dir).is_ok() && std::fs::write(&path, content).is_ok()
+            {
                 seeded.push((*id).to_string());
             }
         }
@@ -849,20 +863,36 @@ impl StrategyManager {
         let all = self.load_all();
         if let Some(mut s) = all.into_iter().find(|s| s.id == strategy_id) {
             let text = format!("{} {}", s.trigger, s.body).to_lowercase();
-            let stype = if text.contains("error") || text.contains("fail") || text.contains("fallback")
-                || text.contains("retry") || text.contains("recover") || text.contains("debug")
+            let stype = if text.contains("error")
+                || text.contains("fail")
+                || text.contains("fallback")
+                || text.contains("retry")
+                || text.contains("recover")
+                || text.contains("debug")
             {
                 StrategyType::ErrorRecov
-            } else if text.contains("tool") || text.contains("command") || text.contains("ripgrep")
-                || text.contains("grep") || text.contains("use ") || text.contains("prefer ")
+            } else if text.contains("tool")
+                || text.contains("command")
+                || text.contains("ripgrep")
+                || text.contains("grep")
+                || text.contains("use ")
+                || text.contains("prefer ")
             {
                 StrategyType::ToolUsage
-            } else if text.contains("step") || text.contains("first") || text.contains("then")
-                || text.contains("workflow") || text.contains("before") || text.contains("after")
+            } else if text.contains("step")
+                || text.contains("first")
+                || text.contains("then")
+                || text.contains("workflow")
+                || text.contains("before")
+                || text.contains("after")
             {
                 StrategyType::Workflow
-            } else if text.contains("aws") || text.contains("docker") || text.contains("k8s")
-                || text.contains("database") || text.contains("api") || text.contains("config")
+            } else if text.contains("aws")
+                || text.contains("docker")
+                || text.contains("k8s")
+                || text.contains("database")
+                || text.contains("api")
+                || text.contains("config")
             {
                 StrategyType::DomainKnow
             } else {
@@ -996,7 +1026,11 @@ impl StrategyManager {
             if all.iter().any(|existing| existing.id == new_id) {
                 continue;
             }
-            let ctx_keywords = high_ctx.iter().map(|c| c.as_str()).collect::<Vec<_>>().join("|");
+            let ctx_keywords = high_ctx
+                .iter()
+                .map(|c| c.as_str())
+                .collect::<Vec<_>>()
+                .join("|");
             let new_trigger = format!("(?:{}).*(?:{})", ctx_keywords, s.trigger);
             let mut new_metrics = StrategyMetrics::default();
             new_metrics.score = max;
@@ -1147,10 +1181,19 @@ metrics:
 
         let hits = mgr.match_skills("帮我搞科研", 5);
         let ids: Vec<&str> = hits.iter().map(|s| s.id.as_str()).collect();
-        assert!(ids.contains(&"skill-research"), "CJK keyword should match: {ids:?}");
+        assert!(
+            ids.contains(&"skill-research"),
+            "CJK keyword should match: {ids:?}"
+        );
         assert!(ids.contains(&"skill-research2"));
-        assert!(!ids.contains(&"skill-rust"), "unrelated skill must not match");
-        assert!(!ids.contains(&"skill-off"), "disabled skill must be excluded");
+        assert!(
+            !ids.contains(&"skill-rust"),
+            "unrelated skill must not match"
+        );
+        assert!(
+            !ids.contains(&"skill-off"),
+            "disabled skill must be excluded"
+        );
 
         // top-K cap bounds the result even when more match.
         let capped = mgr.match_skills("帮我搞科研", 1);
@@ -1193,7 +1236,11 @@ metrics:
         let installed = mgr.install_skill(&srcdir).unwrap();
         assert_eq!(installed, vec!["my-skill".to_string()]);
         let s = mgr.get_skill("my-skill").unwrap();
-        assert_eq!(s.origin, Origin::Community, "install forces community origin");
+        assert_eq!(
+            s.origin,
+            Origin::Community,
+            "install forces community origin"
+        );
         assert!(!s.enabled, "install forces disabled for human review");
         mgr.set_skill_enabled("my-skill", true).unwrap();
         assert!(mgr.get_skill("my-skill").unwrap().enabled);
@@ -1245,7 +1292,10 @@ metrics:
 
         // Re-seeding is idempotent and must not clobber existing files.
         let again = mgr.seed_builtin();
-        assert!(again.is_empty(), "second seed must not rewrite existing files");
+        assert!(
+            again.is_empty(),
+            "second seed must not rewrite existing files"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1275,8 +1325,13 @@ metrics:
     #[test]
     fn test_strategy_manager_create_and_load() {
         let dir = tempfile::tempdir().unwrap();
-        let mgr = StrategyManager { dir: dir.path().to_path_buf(), cache: Mutex::new(SkillCache::default()) };
-        let s = mgr.create_strategy("test-001", "test.*pattern", "# Test\nDo stuff").unwrap();
+        let mgr = StrategyManager {
+            dir: dir.path().to_path_buf(),
+            cache: Mutex::new(SkillCache::default()),
+        };
+        let s = mgr
+            .create_strategy("test-001", "test.*pattern", "# Test\nDo stuff")
+            .unwrap();
         assert_eq!(s.status, StrategyStatus::Candidate);
         let all = mgr.load_all();
         assert_eq!(all.len(), 1);
@@ -1286,9 +1341,14 @@ metrics:
     #[test]
     fn test_strategy_matching() {
         let dir = tempfile::tempdir().unwrap();
-        let mgr = StrategyManager { dir: dir.path().to_path_buf(), cache: Mutex::new(SkillCache::default()) };
-        mgr.create_strategy("s1", "deploy.*AWS", "# Deploy AWS").unwrap();
-        mgr.create_strategy("s2", "test.*unit", "# Unit Test").unwrap();
+        let mgr = StrategyManager {
+            dir: dir.path().to_path_buf(),
+            cache: Mutex::new(SkillCache::default()),
+        };
+        mgr.create_strategy("s1", "deploy.*AWS", "# Deploy AWS")
+            .unwrap();
+        mgr.create_strategy("s2", "test.*unit", "# Unit Test")
+            .unwrap();
 
         // Candidate strategies should also be matched (at reduced weight)
         let matched = mgr.match_strategies("deploy to AWS ECS");

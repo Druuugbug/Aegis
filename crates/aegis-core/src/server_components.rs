@@ -10,18 +10,63 @@
 
 /// Recommendation rows: (category, minimal, standard, advanced).
 const ROWS: &[(&str, &str, &str, &str)] = &[
-    ("Reverse proxy / web", "Caddy", "Nginx", "Caddy or Traefik (auto-TLS)"),
-    ("TLS certificates", "Caddy auto-HTTPS", "certbot (Let's Encrypt)", "Caddy/Traefik ACME"),
-    ("Container runtime", "none / static binaries", "Docker", "Podman or containerd + nerdctl"),
-    ("Database", "SQLite", "PostgreSQL", "PostgreSQL + extensions"),
+    (
+        "Reverse proxy / web",
+        "Caddy",
+        "Nginx",
+        "Caddy or Traefik (auto-TLS)",
+    ),
+    (
+        "TLS certificates",
+        "Caddy auto-HTTPS",
+        "certbot (Let's Encrypt)",
+        "Caddy/Traefik ACME",
+    ),
+    (
+        "Container runtime",
+        "none / static binaries",
+        "Docker",
+        "Podman or containerd + nerdctl",
+    ),
+    (
+        "Database",
+        "SQLite",
+        "PostgreSQL",
+        "PostgreSQL + extensions",
+    ),
     ("Cache / KV", "none", "Redis", "Redis / Dragonfly"),
-    ("Process manager", "systemd unit", "systemd", "systemd + watchdog"),
+    (
+        "Process manager",
+        "systemd unit",
+        "systemd",
+        "systemd + watchdog",
+    ),
     ("Firewall", "ufw", "nftables", "nftables (scripted)"),
-    ("Monitoring", "htop / vmstat", "netdata", "Prometheus + Grafana"),
-    ("Logs", "journalctl", "journald + logrotate", "Loki / Vector"),
-    ("Proxy / VPN", "single xray", "x-ui (3X-UI)", "sing-box or xray + REALITY"),
+    (
+        "Monitoring",
+        "htop / vmstat",
+        "netdata",
+        "Prometheus + Grafana",
+    ),
+    (
+        "Logs",
+        "journalctl",
+        "journald + logrotate",
+        "Loki / Vector",
+    ),
+    (
+        "Proxy / VPN",
+        "single xray",
+        "x-ui (3X-UI)",
+        "sing-box or xray + REALITY",
+    ),
     ("Backup", "tar + cron", "restic", "restic + offsite (S3)"),
-    ("Shell / ops", "bash + coreutils", "tmux + fzf", "zsh + modern CLI suite"),
+    (
+        "Shell / ops",
+        "bash + coreutils",
+        "tmux + fzf",
+        "zsh + modern CLI suite",
+    ),
 ];
 
 /// Normalise a tier string to one of `minimal|standard|advanced`.

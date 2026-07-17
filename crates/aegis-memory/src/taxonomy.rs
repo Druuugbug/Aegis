@@ -10,10 +10,10 @@ pub use crate::entry::Reinforcement;
 /// Enhanced with confidence scoring, graph links, and supersession tracking.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Drawer {
-    pub id: String,        // drawer_{wing}_{room}_{hash}
-    pub content: String,   // verbatim chunk (800 chars, 100 overlap)
-    pub wing: String,      // top-level domain
-    pub room: String,      // topic
+    pub id: String,      // drawer_{wing}_{room}_{hash}
+    pub content: String, // verbatim chunk (800 chars, 100 overlap)
+    pub wing: String,    // top-level domain
+    pub room: String,    // topic
     pub source_file: String,
     pub chunk_index: u32,
     pub filed_at: chrono::DateTime<chrono::Utc>,
@@ -41,8 +41,12 @@ pub struct Drawer {
     pub active: bool,
 }
 
-fn default_confidence() -> f32 { 0.7 }
-fn default_active() -> bool { true }
+fn default_confidence() -> f32 {
+    0.7
+}
+fn default_active() -> bool {
+    true
+}
 
 impl Drawer {
     /// Create a new drawer with default v2 fields.
@@ -91,9 +95,15 @@ impl Drawer {
         };
 
         // Age decay: linear up to 30% over a year
-        let age_days = self.accessed_at
+        let age_days = self
+            .accessed_at
             .or(Some(self.filed_at))
-            .map(|t| chrono::Utc::now().signed_duration_since(t).num_days().max(0) as f32)
+            .map(|t| {
+                chrono::Utc::now()
+                    .signed_duration_since(t)
+                    .num_days()
+                    .max(0) as f32
+            })
             .unwrap_or(0.0);
         let age_decay = (age_days / 365.0).min(0.3);
 
@@ -101,7 +111,9 @@ impl Drawer {
         let reinforcement_adj = if self.reinforcements.is_empty() {
             0.0
         } else {
-            let recent: Vec<f32> = self.reinforcements.iter()
+            let recent: Vec<f32> = self
+                .reinforcements
+                .iter()
                 .rev()
                 .take(10)
                 .map(|r| r.score)
@@ -222,8 +234,12 @@ impl MemoryTaxonomy {
             let id = format!("drawer_{}_{}_{}", wing, room, &hash[..8]);
 
             room_entry.drawers.push(Drawer::new(
-                id, chunk, wing.to_string(), room.to_string(),
-                source_file.to_string(), chunk_index,
+                id,
+                chunk,
+                wing.to_string(),
+                room.to_string(),
+                source_file.to_string(),
+                chunk_index,
             ));
 
             if end == chars.len() {
@@ -291,7 +307,8 @@ impl MemoryTaxonomy {
     pub fn linked_active_ids(&self, drawer_id: &str) -> Vec<String> {
         self.find_drawer(drawer_id)
             .map(|d| {
-                d.linked_ids.iter()
+                d.linked_ids
+                    .iter()
                     .filter(|lid| {
                         self.find_drawer(lid)
                             .map(|linked| linked.active)
@@ -330,7 +347,14 @@ mod tests {
 
     #[test]
     fn drawer_new_defaults() {
-        let d = Drawer::new("d1".into(), "hello".into(), "dev".into(), "rust".into(), "main.rs".into(), 0);
+        let d = Drawer::new(
+            "d1".into(),
+            "hello".into(),
+            "dev".into(),
+            "rust".into(),
+            "main.rs".into(),
+            0,
+        );
         assert_eq!(d.id, "d1");
         assert_eq!(d.content, "hello");
         assert_eq!(d.confidence, 0.7);
@@ -343,7 +367,14 @@ mod tests {
 
     #[test]
     fn drawer_effective_confidence_fresh() {
-        let d = Drawer::new("d1".into(), "c".into(), "w".into(), "r".into(), "f".into(), 0);
+        let d = Drawer::new(
+            "d1".into(),
+            "c".into(),
+            "w".into(),
+            "r".into(),
+            "f".into(),
+            0,
+        );
         // Fresh drawer: ~0.7 (no age decay yet, no access boost)
         let eff = d.effective_confidence();
         assert!((0.65..=0.75).contains(&eff), "expected ~0.7, got {}", eff);
@@ -351,16 +382,34 @@ mod tests {
 
     #[test]
     fn drawer_effective_confidence_with_access() {
-        let mut d = Drawer::new("d1".into(), "c".into(), "w".into(), "r".into(), "f".into(), 0);
+        let mut d = Drawer::new(
+            "d1".into(),
+            "c".into(),
+            "w".into(),
+            "r".into(),
+            "f".into(),
+            0,
+        );
         d.access_count = 10;
         d.accessed_at = Some(chrono::Utc::now());
         let eff = d.effective_confidence();
-        assert!(eff > 0.7, "access boost should raise confidence, got {}", eff);
+        assert!(
+            eff > 0.7,
+            "access boost should raise confidence, got {}",
+            eff
+        );
     }
 
     #[test]
     fn drawer_touch() {
-        let mut d = Drawer::new("d1".into(), "c".into(), "w".into(), "r".into(), "f".into(), 0);
+        let mut d = Drawer::new(
+            "d1".into(),
+            "c".into(),
+            "w".into(),
+            "r".into(),
+            "f".into(),
+            0,
+        );
         d.touch();
         assert_eq!(d.access_count, 1);
         assert!(d.accessed_at.is_some());
@@ -368,7 +417,14 @@ mod tests {
 
     #[test]
     fn drawer_reinforce() {
-        let mut d = Drawer::new("d1".into(), "c".into(), "w".into(), "r".into(), "f".into(), 0);
+        let mut d = Drawer::new(
+            "d1".into(),
+            "c".into(),
+            "w".into(),
+            "r".into(),
+            "f".into(),
+            0,
+        );
         d.reinforce(0.5, "positive feedback");
         assert_eq!(d.reinforcements.len(), 1);
         assert_eq!(d.reinforcements[0].score, 0.5);
@@ -379,7 +435,14 @@ mod tests {
 
     #[test]
     fn drawer_decay_confidence() {
-        let mut d = Drawer::new("d1".into(), "c".into(), "w".into(), "r".into(), "f".into(), 0);
+        let mut d = Drawer::new(
+            "d1".into(),
+            "c".into(),
+            "w".into(),
+            "r".into(),
+            "f".into(),
+            0,
+        );
         d.decay_confidence(0.3);
         assert!((d.confidence - 0.4).abs() < 0.01);
         d.decay_confidence(1.0);
@@ -388,7 +451,14 @@ mod tests {
 
     #[test]
     fn drawer_supersede() {
-        let mut d = Drawer::new("d1".into(), "c".into(), "w".into(), "r".into(), "f".into(), 0);
+        let mut d = Drawer::new(
+            "d1".into(),
+            "c".into(),
+            "w".into(),
+            "r".into(),
+            "f".into(),
+            0,
+        );
         d.supersede("d2");
         assert_eq!(d.superseded_by, Some("d2".to_string()));
         assert!(!d.active);
@@ -396,7 +466,14 @@ mod tests {
 
     #[test]
     fn drawer_link_to_no_duplicates() {
-        let mut d = Drawer::new("d1".into(), "c".into(), "w".into(), "r".into(), "f".into(), 0);
+        let mut d = Drawer::new(
+            "d1".into(),
+            "c".into(),
+            "w".into(),
+            "r".into(),
+            "f".into(),
+            0,
+        );
         d.link_to("d2");
         d.link_to("d2"); // duplicate
         d.link_to("d3");
@@ -405,12 +482,23 @@ mod tests {
 
     #[test]
     fn drawer_effective_confidence_with_reinforcements() {
-        let mut d = Drawer::new("d1".into(), "c".into(), "w".into(), "r".into(), "f".into(), 0);
+        let mut d = Drawer::new(
+            "d1".into(),
+            "c".into(),
+            "w".into(),
+            "r".into(),
+            "f".into(),
+            0,
+        );
         d.reinforce(0.5, "good");
         d.reinforce(0.5, "good");
         d.reinforce(0.5, "good");
         let eff = d.effective_confidence();
-        assert!(eff > 0.7, "positive reinforcement should boost, got {}", eff);
+        assert!(
+            eff > 0.7,
+            "positive reinforcement should boost, got {}",
+            eff
+        );
     }
 
     #[test]
@@ -441,7 +529,11 @@ mod tests {
         let long_text: String = (0..2000).map(|i| (b'a' + (i % 26) as u8) as char).collect();
         tax.ingest("dev", "rust", "big.rs", &long_text);
         let drawers = tax.drawers_in_scope("dev", "rust");
-        assert!(drawers.len() >= 2, "expected multiple chunks, got {}", drawers.len());
+        assert!(
+            drawers.len() >= 2,
+            "expected multiple chunks, got {}",
+            drawers.len()
+        );
         // All drawers should have unique IDs
         let mut ids: Vec<&str> = drawers.iter().map(|d| d.id.as_str()).collect();
         ids.sort();
@@ -453,8 +545,10 @@ mod tests {
     fn memory_taxonomy_add_tunnel() {
         let mut tax = MemoryTaxonomy::new();
         tax.add_tunnel(Tunnel {
-            source_wing: "a".into(), source_room: "b".into(),
-            target_wing: "c".into(), target_room: "d".into(),
+            source_wing: "a".into(),
+            source_room: "b".into(),
+            target_wing: "c".into(),
+            target_room: "d".into(),
             relation: "references".into(),
         });
         assert_eq!(tax.tunnels.len(), 1);
@@ -506,11 +600,15 @@ mod tests {
     #[test]
     fn memory_taxonomy_add_closet() {
         let mut tax = MemoryTaxonomy::new();
-        tax.add_closet("dev", "rust", Closet {
-            topic: "ownership".into(),
-            entities: vec!["borrow checker".into()],
-            drawer_ids: vec!["d1".into()],
-        });
+        tax.add_closet(
+            "dev",
+            "rust",
+            Closet {
+                topic: "ownership".into(),
+                entities: vec!["borrow checker".into()],
+                drawer_ids: vec!["d1".into()],
+            },
+        );
         let wing = tax.wings.get("dev").unwrap();
         let room = wing.rooms.get("rust").unwrap();
         assert_eq!(room.closets.len(), 1);

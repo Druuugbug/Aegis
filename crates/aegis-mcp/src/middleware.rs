@@ -1,8 +1,8 @@
+use serde_json::Value;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use serde_json::Value;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
@@ -30,15 +30,11 @@ pub struct JsonRpcError {
 
 // ─── Middleware Types ─────────────────────────────────────────────────────────
 
-pub type Next = Box<
-    dyn FnOnce(McpRequest) -> Pin<Box<dyn Future<Output = McpResponse> + Send>>
-        + Send,
->;
+pub type Next =
+    Box<dyn FnOnce(McpRequest) -> Pin<Box<dyn Future<Output = McpResponse> + Send>> + Send>;
 
 pub type Middleware = Arc<
-    dyn Fn(McpRequest, Next) -> Pin<Box<dyn Future<Output = McpResponse> + Send>>
-        + Send
-        + Sync,
+    dyn Fn(McpRequest, Next) -> Pin<Box<dyn Future<Output = McpResponse> + Send>> + Send + Sync,
 >;
 
 // ─── MiddlewareStack ──────────────────────────────────────────────────────────
@@ -56,7 +52,9 @@ impl Default for MiddlewareStack {
 impl MiddlewareStack {
     /// Create an empty middleware stack.
     pub fn new() -> Self {
-        Self { middlewares: Vec::new() }
+        Self {
+            middlewares: Vec::new(),
+        }
     }
 
     /// Add a middleware to the end of the stack.
@@ -186,7 +184,8 @@ mod tests {
         let mut stack = MiddlewareStack::new();
         stack.use_middleware(auth_middleware("secret123".to_string()));
         let mut req = make_req("test");
-        req.meta.insert("authorization".to_string(), "Bearer secret123".to_string());
+        req.meta
+            .insert("authorization".to_string(), "Bearer secret123".to_string());
         let resp = stack.execute(req, ok_handler()).await;
         assert!(resp.result.is_some());
     }
@@ -209,7 +208,10 @@ mod tests {
                 } else {
                     McpResponse {
                         result: None,
-                        error: Some(JsonRpcError { code: -1, message: "missing header".to_string() }),
+                        error: Some(JsonRpcError {
+                            code: -1,
+                            message: "missing header".to_string(),
+                        }),
                     }
                 }
             })

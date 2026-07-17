@@ -20,11 +20,14 @@ pub mod skill;
 pub mod taxonomy;
 pub mod wal;
 
-pub use cas::{ContentAddressedStorage, CasEntry};
-pub use entry::{MemoryCategory, TrustLevel, Reinforcement as MemoryReinforcement, MemoryEntry, MemoryGraph, available_disk_bytes, disk_aware_max_entries};
+pub use cas::{CasEntry, ContentAddressedStorage};
 pub use context::{ContextBuilder, ContextSection};
-pub use filesystem::{FileSystem, FileInfo, WriteFlag, MountableFS, MemFs};
+pub use entry::{
+    available_disk_bytes, disk_aware_max_entries, MemoryCategory, MemoryEntry, MemoryGraph,
+    Reinforcement as MemoryReinforcement, TrustLevel,
+};
+pub use filesystem::{FileInfo, FileSystem, MemFs, MountableFS, WriteFlag};
 pub use hybrid_search::{HybridSearch, SearchResult, SearchScope};
-pub use skill::{SkillRequirements, SkillAvailability};
-pub use taxonomy::{MemoryTaxonomy, Wing, Room, Drawer, Closet, Tunnel, Reinforcement};
-pub use wal::{WriteAheadLog, WalEntry};
+pub use skill::{SkillAvailability, SkillRequirements};
+pub use taxonomy::{Closet, Drawer, MemoryTaxonomy, Reinforcement, Room, Tunnel, Wing};
+pub use wal::{WalEntry, WriteAheadLog};

@@ -206,17 +206,7 @@ mod tests {
             vec![b"c".to_vec(), b"f".to_vec()],
         ];
         let result = kway_merge(&runs);
-        assert_eq!(
-            result,
-            vec![
-                b"a".as_slice(),
-                b"b",
-                b"c",
-                b"d",
-                b"e",
-                b"f"
-            ]
-        );
+        assert_eq!(result, vec![b"a".as_slice(), b"b", b"c", b"d", b"e", b"f"]);
     }
 
     #[test]
@@ -234,10 +224,7 @@ mod tests {
 
     #[test]
     fn duplicate_keys() {
-        let runs = vec![
-            vec![b"a".to_vec(), b"a".to_vec()],
-            vec![b"a".to_vec()],
-        ];
+        let runs = vec![vec![b"a".to_vec(), b"a".to_vec()], vec![b"a".to_vec()]];
         let result = kway_merge(&runs);
         assert_eq!(result.len(), 3); // duplicates preserved
     }

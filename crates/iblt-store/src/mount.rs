@@ -81,10 +81,7 @@ impl MountManager {
         let id = mount.id.0.clone();
         let priority = mount.priority;
         self.by_id.insert(id, mount.clone());
-        self.mounts
-            .entry(priority)
-            .or_default()
-            .push(mount);
+        self.mounts.entry(priority).or_default().push(mount);
     }
 
     /// Unregister a mount point by ID.

@@ -130,8 +130,12 @@ impl<'a> HookRunner<'a> {
             });
             let outcome = run_hook(def, event, tool, session_id, cwd, &input.to_string()).await;
             match outcome {
-                HookOutcome::Deny(r) if event == HookEvent::PreToolUse => return HookOutcome::Deny(r),
-                HookOutcome::Ask(r) if event == HookEvent::PreToolUse => return HookOutcome::Ask(r),
+                HookOutcome::Deny(r) if event == HookEvent::PreToolUse => {
+                    return HookOutcome::Deny(r)
+                }
+                HookOutcome::Ask(r) if event == HookEvent::PreToolUse => {
+                    return HookOutcome::Ask(r)
+                }
                 HookOutcome::Modify(v) if event == HookEvent::PreToolUse => {
                     return HookOutcome::Modify(v)
                 }
@@ -269,7 +273,10 @@ mod tests {
     #[test]
     fn test_parse_exit_codes() {
         assert_eq!(parse_hook_output("", 0), HookOutcome::Allow);
-        assert_eq!(parse_hook_output("bad", 2), HookOutcome::Deny("bad".to_string()));
+        assert_eq!(
+            parse_hook_output("bad", 2),
+            HookOutcome::Deny("bad".to_string())
+        );
         // unknown non-zero → allow (non-fatal)
         assert_eq!(parse_hook_output("", 7), HookOutcome::Allow);
     }
@@ -294,7 +301,13 @@ mod tests {
         let cfg = HooksConfig::default();
         let runner = HookRunner::new(&cfg);
         let out = runner
-            .fire(HookEvent::PreToolUse, Some("write_file"), None, "s", std::path::Path::new("/tmp"))
+            .fire(
+                HookEvent::PreToolUse,
+                Some("write_file"),
+                None,
+                "s",
+                std::path::Path::new("/tmp"),
+            )
             .await;
         assert_eq!(out, HookOutcome::Noop);
     }

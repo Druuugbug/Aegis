@@ -4,7 +4,7 @@
 //! the hot tier, cold tier, drain controller, and event bus.
 
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex, Condvar};
+use std::sync::{Arc, Condvar, Mutex};
 
 /// A bounded multi-producer, single-consumer channel.
 #[derive(Debug)]
@@ -37,9 +37,17 @@ impl<T> BoundedChannel<T> {
 
     /// Send a value. Blocks if the channel is full. Returns Err if closed.
     pub fn send(&self, value: T) -> Result<(), ChannelError> {
-        let mut queue = self.inner.queue.lock().map_err(|_| ChannelError::Poisoned)?;
+        let mut queue = self
+            .inner
+            .queue
+            .lock()
+            .map_err(|_| ChannelError::Poisoned)?;
         while queue.len() >= self.inner.capacity {
-            let closed = self.inner.closed.lock().map_err(|_| ChannelError::Poisoned)?;
+            let closed = self
+                .inner
+                .closed
+                .lock()
+                .map_err(|_| ChannelError::Poisoned)?;
             if *closed {
                 return Err(ChannelError::Closed);
             }
@@ -56,8 +64,16 @@ impl<T> BoundedChannel<T> {
 
     /// Try to send a value without blocking. Returns Err if full or closed.
     pub fn try_send(&self, value: T) -> Result<(), ChannelError> {
-        let mut queue = self.inner.queue.lock().map_err(|_| ChannelError::Poisoned)?;
-        let closed = self.inner.closed.lock().map_err(|_| ChannelError::Poisoned)?;
+        let mut queue = self
+            .inner
+            .queue
+            .lock()
+            .map_err(|_| ChannelError::Poisoned)?;
+        let closed = self
+            .inner
+            .closed
+            .lock()
+            .map_err(|_| ChannelError::Poisoned)?;
         if *closed {
             return Err(ChannelError::Closed);
         }
@@ -71,13 +87,21 @@ impl<T> BoundedChannel<T> {
 
     /// Receive a value. Blocks if the channel is empty. Returns Err if closed.
     pub fn recv(&self) -> Result<T, ChannelError> {
-        let mut queue = self.inner.queue.lock().map_err(|_| ChannelError::Poisoned)?;
+        let mut queue = self
+            .inner
+            .queue
+            .lock()
+            .map_err(|_| ChannelError::Poisoned)?;
         loop {
             if let Some(value) = queue.pop_front() {
                 self.inner.not_full.notify_one();
                 return Ok(value);
             }
-            let closed = self.inner.closed.lock().map_err(|_| ChannelError::Poisoned)?;
+            let closed = self
+                .inner
+                .closed
+                .lock()
+                .map_err(|_| ChannelError::Poisoned)?;
             if *closed && queue.is_empty() {
                 return Err(ChannelError::Closed);
             }
@@ -91,12 +115,20 @@ impl<T> BoundedChannel<T> {
 
     /// Try to receive without blocking.
     pub fn try_recv(&self) -> Result<T, ChannelError> {
-        let mut queue = self.inner.queue.lock().map_err(|_| ChannelError::Poisoned)?;
+        let mut queue = self
+            .inner
+            .queue
+            .lock()
+            .map_err(|_| ChannelError::Poisoned)?;
         if let Some(value) = queue.pop_front() {
             self.inner.not_full.notify_one();
             Ok(value)
         } else {
-            let closed = self.inner.closed.lock().map_err(|_| ChannelError::Poisoned)?;
+            let closed = self
+                .inner
+                .closed
+                .lock()
+                .map_err(|_| ChannelError::Poisoned)?;
             if *closed {
                 Err(ChannelError::Closed)
             } else {

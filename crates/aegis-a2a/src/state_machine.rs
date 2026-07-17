@@ -61,7 +61,10 @@ mod tests {
         let all_states = [Submitted, Working, Completed, Failed, Canceled, Rejected];
         for from in &terminal {
             for to in &all_states {
-                assert!(!validate_transition(from, to), "{from:?} -> {to:?} should be invalid");
+                assert!(
+                    !validate_transition(from, to),
+                    "{from:?} -> {to:?} should be invalid"
+                );
             }
         }
     }

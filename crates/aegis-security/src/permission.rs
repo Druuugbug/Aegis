@@ -37,7 +37,7 @@ pub fn is_dangerous_command(cmd: &str) -> bool {
         || lower.contains("truncate")
         || lower.contains("mkfs")
         || lower.contains("dd if=")
-        || lower.contains(":(){:|:&};:")  // fork bomb
+        || lower.contains(":(){:|:&};:") // fork bomb
 }
 
 /// 7.1.2: Upgrade tier for dangerous terminal commands
@@ -104,7 +104,10 @@ mod tests {
         assert_eq!(tool_permission_tier("read_file"), PermissionTier::Auto);
         assert_eq!(tool_permission_tier("search_files"), PermissionTier::Auto);
         // Unknown tools default to Auto
-        assert_eq!(tool_permission_tier("some_custom_tool"), PermissionTier::Auto);
+        assert_eq!(
+            tool_permission_tier("some_custom_tool"),
+            PermissionTier::Auto
+        );
     }
 
     #[test]
@@ -127,21 +130,36 @@ mod tests {
     #[test]
     fn test_effective_tier_normal() {
         assert_eq!(effective_tier("read_file", None), PermissionTier::Auto);
-        assert_eq!(effective_tier("terminal", Some("ls -la")), PermissionTier::Approve);
+        assert_eq!(
+            effective_tier("terminal", Some("ls -la")),
+            PermissionTier::Approve
+        );
         assert_eq!(effective_tier("terminal", None), PermissionTier::Approve);
     }
 
     #[test]
     fn test_effective_tier_dangerous_command() {
-        assert_eq!(effective_tier("terminal", Some("rm -rf /")), PermissionTier::Confirm2x);
-        assert_eq!(effective_tier("terminal", Some("DROP TABLE users")), PermissionTier::Confirm2x);
-        assert_eq!(effective_tier("terminal", Some("mkfs.ext4 /dev/sda")), PermissionTier::Confirm2x);
+        assert_eq!(
+            effective_tier("terminal", Some("rm -rf /")),
+            PermissionTier::Confirm2x
+        );
+        assert_eq!(
+            effective_tier("terminal", Some("DROP TABLE users")),
+            PermissionTier::Confirm2x
+        );
+        assert_eq!(
+            effective_tier("terminal", Some("mkfs.ext4 /dev/sda")),
+            PermissionTier::Confirm2x
+        );
     }
 
     #[test]
     fn test_effective_tier_non_terminal_tool() {
         // Even a dangerous-looking command in a non-terminal tool should not upgrade
-        assert_eq!(effective_tier("browser", Some("rm -rf /")), PermissionTier::Notify);
+        assert_eq!(
+            effective_tier("browser", Some("rm -rf /")),
+            PermissionTier::Notify
+        );
     }
 
     #[test]

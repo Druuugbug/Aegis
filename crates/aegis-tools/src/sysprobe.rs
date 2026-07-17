@@ -182,7 +182,10 @@ impl Tool for ListeningPortsTool {
         }
 
         if !any_file {
-            return Ok("listening_ports is only supported on Linux (could not read /proc/net/tcp).".to_string());
+            return Ok(
+                "listening_ports is only supported on Linux (could not read /proc/net/tcp)."
+                    .to_string(),
+            );
         }
         if listeners.is_empty() {
             return Ok("No listening TCP sockets found.".to_string());
@@ -258,8 +261,12 @@ mod tests {
     #[test]
     fn listen_line_filters_state() {
         // A LISTEN row (st = 0A) on 0.0.0.0:22 (port 0x0016 = 22).
-        let listen = "  0: 00000000:0016 00000000:0000 0A 00000000:00000000 00:00000000 00000000  0";
-        assert_eq!(parse_listen_line(listen, false).as_deref(), Some("0.0.0.0:22"));
+        let listen =
+            "  0: 00000000:0016 00000000:0000 0A 00000000:00000000 00:00000000 00000000  0";
+        assert_eq!(
+            parse_listen_line(listen, false).as_deref(),
+            Some("0.0.0.0:22")
+        );
         // An ESTABLISHED row (st = 01) is ignored.
         let est = "  1: 0100007F:1F90 0100007F:C000 01 00000000:00000000 00:00000000 00000000  0";
         assert_eq!(parse_listen_line(est, false), None);

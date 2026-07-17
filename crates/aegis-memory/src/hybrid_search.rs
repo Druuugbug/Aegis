@@ -34,17 +34,32 @@ pub struct SearchScope {
 impl SearchScope {
     /// Create a scope that searches all wings and rooms.
     pub fn global(limit: usize) -> Self {
-        Self { wing: None, room: None, limit, include_inactive: false }
+        Self {
+            wing: None,
+            room: None,
+            limit,
+            include_inactive: false,
+        }
     }
 
     /// Create a scope that searches only the given wing.
     pub fn wing(wing: &str, limit: usize) -> Self {
-        Self { wing: Some(wing.to_string()), room: None, limit, include_inactive: false }
+        Self {
+            wing: Some(wing.to_string()),
+            room: None,
+            limit,
+            include_inactive: false,
+        }
     }
 
     /// Create a scope that searches a specific wing and room.
     pub fn room(wing: &str, room: &str, limit: usize) -> Self {
-        Self { wing: Some(wing.to_string()), room: Some(room.to_string()), limit, include_inactive: false }
+        Self {
+            wing: Some(wing.to_string()),
+            room: Some(room.to_string()),
+            limit,
+            include_inactive: false,
+        }
     }
 }
 
@@ -63,7 +78,10 @@ pub struct HybridSearch {
 
 impl Default for HybridSearch {
     fn default() -> Self {
-        Self { vector_weight: 0.6, bm25_weight: 0.4 }
+        Self {
+            vector_weight: 0.6,
+            bm25_weight: 0.4,
+        }
     }
 }
 
@@ -117,7 +135,8 @@ impl HybridSearch {
             .map(|(id, content, wing, room, vscore, confidence)| {
                 let bm25 = Self::bm25_score(query, &content);
                 let semantic_score = vscore * self.vector_weight + bm25 * self.bm25_weight;
-                let final_score = semantic_score * (1.0 - CONFIDENCE_WEIGHT) + confidence * CONFIDENCE_WEIGHT;
+                let final_score =
+                    semantic_score * (1.0 - CONFIDENCE_WEIGHT) + confidence * CONFIDENCE_WEIGHT;
                 SearchResult {
                     drawer_id: id,
                     content,
@@ -139,7 +158,11 @@ impl HybridSearch {
             }
         }
 
-        results.sort_by(|a, b| b.final_score.partial_cmp(&a.final_score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.final_score
+                .partial_cmp(&a.final_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results.truncate(limit);
         results
     }
@@ -216,7 +239,10 @@ impl HybridSearch {
             for room in wing.rooms.values() {
                 for closet in &room.closets {
                     if closet.topic.to_lowercase().contains(&query_lower)
-                        || closet.entities.iter().any(|e| e.to_lowercase().contains(&query_lower))
+                        || closet
+                            .entities
+                            .iter()
+                            .any(|e| e.to_lowercase().contains(&query_lower))
                     {
                         closet_boosted.extend_from_slice(&closet.drawer_ids);
                     }
@@ -229,13 +255,18 @@ impl HybridSearch {
         // Tunnel extension: follow tunnels from matching scopes (1 hop, weight 0.7)
         if let (Some(wing_name), Some(room_name)) = (&scope.wing, &scope.room) {
             for tunnel in taxonomy.tunnels_from(wing_name, room_name) {
-                let target_scope = SearchScope::room(&tunnel.target_wing, &tunnel.target_room, scope.limit);
+                let target_scope =
+                    SearchScope::room(&tunnel.target_wing, &tunnel.target_room, scope.limit);
                 let extended = self.search(query, taxonomy, &target_scope);
                 results.extend(extended.into_iter().map(|r| r.with_lower_weight(0.7)));
             }
         }
 
-        results.sort_by(|a, b| b.final_score.partial_cmp(&a.final_score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.final_score
+                .partial_cmp(&a.final_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results.truncate(scope.limit);
         results
     }
@@ -298,12 +329,34 @@ mod tests {
     fn rerank_closet_boost() {
         let hs = HybridSearch::new();
         let candidates = vec![
-            ("d1".into(), "boosted".into(), "w".into(), "r".into(), 0.5, 0.5),
-            ("d2".into(), "normal".into(), "w".into(), "r".into(), 0.5, 0.5),
+            (
+                "d1".into(),
+                "boosted".into(),
+                "w".into(),
+                "r".into(),
+                0.5,
+                0.5,
+            ),
+            (
+                "d2".into(),
+                "normal".into(),
+                "w".into(),
+                "r".into(),
+                0.5,
+                0.5,
+            ),
         ];
         let results = hs.rerank("test", candidates, &["d1".into()], 10);
-        let d1_score = results.iter().find(|r| r.drawer_id == "d1").unwrap().final_score;
-        let d2_score = results.iter().find(|r| r.drawer_id == "d2").unwrap().final_score;
+        let d1_score = results
+            .iter()
+            .find(|r| r.drawer_id == "d1")
+            .unwrap()
+            .final_score;
+        let d2_score = results
+            .iter()
+            .find(|r| r.drawer_id == "d2")
+            .unwrap()
+            .final_score;
         assert!(d1_score > d2_score, "boosted drawer should rank higher");
     }
 
@@ -350,7 +403,12 @@ mod tests {
     fn search_taxonomy_integration() {
         use crate::taxonomy::MemoryTaxonomy;
         let mut tax = MemoryTaxonomy::new();
-        tax.ingest("dev", "rust", "main.rs", "fn main() { println!(\"hello\"); }");
+        tax.ingest(
+            "dev",
+            "rust",
+            "main.rs",
+            "fn main() { println!(\"hello\"); }",
+        );
         tax.ingest("dev", "python", "app.py", "print('hello')");
 
         let hs = HybridSearch::new();

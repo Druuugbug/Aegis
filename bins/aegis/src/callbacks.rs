@@ -77,7 +77,9 @@ pub(crate) fn summarize_spawn_dispatch(args: &str) -> Option<String> {
         .collect::<Vec<_>>()
         .join(", ");
     let noun = if n == 1 { "sub-agent" } else { "sub-agents" };
-    Some(format!("🤖 dispatching {n} {noun} in parallel ({breakdown})"))
+    Some(format!(
+        "🤖 dispatching {n} {noun} in parallel ({breakdown})"
+    ))
 }
 
 impl AgentCallbacks for CliCallbacks {
@@ -98,7 +100,8 @@ impl AgentCallbacks for CliCallbacks {
         if iteration <= 1 {
             self.status.set_label("Thinking…");
         } else {
-            self.status.set_label(format!("Thinking · step {iteration}/{max}"));
+            self.status
+                .set_label(format!("Thinking · step {iteration}/{max}"));
         }
     }
 
@@ -109,11 +112,18 @@ impl AgentCallbacks for CliCallbacks {
     fn on_tool_start(&self, name: &str, args: &str) {
         let args = args.trim();
         if args.is_empty() {
-            self.status
-                .line(&format!("  {} {}", "●".bright_yellow(), name.bright_white()));
+            self.status.line(&format!(
+                "  {} {}",
+                "●".bright_yellow(),
+                name.bright_white()
+            ));
         } else {
             let preview: String = args.chars().take(1600).collect();
-            let ellipsis = if args.chars().count() > 1600 { "…" } else { "" };
+            let ellipsis = if args.chars().count() > 1600 {
+                "…"
+            } else {
+                ""
+            };
             self.status.line(&format!(
                 "  {} {}\n  {} {}{}",
                 "●".bright_yellow(),
@@ -127,18 +137,23 @@ impl AgentCallbacks for CliCallbacks {
         // spawn_task args and show how many sub-agents (and which models) went out.
         if name == "spawn_task" {
             if let Some(summary) = summarize_spawn_dispatch(args) {
-                self.status
-                    .line(&format!("  {} {}", "⇒".bright_cyan(), summary.bright_cyan()));
+                self.status.line(&format!(
+                    "  {} {}",
+                    "⇒".bright_cyan(),
+                    summary.bright_cyan()
+                ));
             }
         }
         self.status.set_label(format!("Running {name}…"));
     }
 
-    fn on_tool_complete(&self, name: &str, _result: &str, success: bool) {        // No success checkmark: the `● name` start line is the record, and the
+    fn on_tool_complete(&self, name: &str, _result: &str, success: bool) {
+        // No success checkmark: the `● name` start line is the record, and the
         // live spinner shows the tool running. Only surface failures — as a red
         // circle (not a ✗), matching the circle the user asked for.
         if !success {
-            self.status.line(&format!("  {} {}", "●".red(), name.dimmed()));
+            self.status
+                .line(&format!("  {} {}", "●".red(), name.dimmed()));
         }
         // Refresh the pinned todo progress bar after any todo mutation/listing.
         if name == "todo" {
@@ -205,7 +220,8 @@ mod tests {
 
     #[test]
     fn summarize_skips_tasks_without_prompt() {
-        let s = summarize_spawn_dispatch(r#"{"tasks":[{"model":"gpt-4o"},{"prompt":"real"}]}"#).unwrap();
+        let s = summarize_spawn_dispatch(r#"{"tasks":[{"model":"gpt-4o"},{"prompt":"real"}]}"#)
+            .unwrap();
         assert!(s.contains("1 sub-agent "), "got: {s}");
     }
 

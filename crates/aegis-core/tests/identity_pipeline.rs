@@ -6,9 +6,7 @@
 
 use aegis_core::config::{peer_trust_level, PeerConfig};
 use aegis_core::peer_trust::{effective_trust, PeerTrustDb};
-use aegis_security::{
-    derive_sandbox_policy, identity_approval, Approval, Identity, TrustLevel,
-};
+use aegis_security::{derive_sandbox_policy, identity_approval, Approval, Identity, TrustLevel};
 use std::path::Path;
 
 #[test]
@@ -95,11 +93,20 @@ fn effective_trust_layers_correctly() {
     ];
 
     // DB overrides config for alice.
-    assert_eq!(effective_trust(&db, &config_peers, "alice"), TrustLevel::Trusted);
+    assert_eq!(
+        effective_trust(&db, &config_peers, "alice"),
+        TrustLevel::Trusted
+    );
     // Config used when db is silent.
-    assert_eq!(effective_trust(&db, &config_peers, "bob"), TrustLevel::Restricted);
+    assert_eq!(
+        effective_trust(&db, &config_peers, "bob"),
+        TrustLevel::Restricted
+    );
     // Unknown peer → ReadOnly (safest default).
-    assert_eq!(effective_trust(&db, &config_peers, "eve"), TrustLevel::ReadOnly);
+    assert_eq!(
+        effective_trust(&db, &config_peers, "eve"),
+        TrustLevel::ReadOnly
+    );
 }
 
 #[test]
@@ -115,7 +122,11 @@ fn peer_trust_db_persistence_roundtrip() {
     let path = tmp.path().join("peers_trust.toml");
 
     let mut db = PeerTrustDb::default();
-    db.set("coder-bot", TrustLevel::Trusted, Some("dev workstation".into()));
+    db.set(
+        "coder-bot",
+        TrustLevel::Trusted,
+        Some("dev workstation".into()),
+    );
     db.set("analyst-bot", TrustLevel::Standard, None);
     db.save(&path).expect("save");
 

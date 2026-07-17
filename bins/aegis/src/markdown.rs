@@ -105,7 +105,10 @@ fn bullet_rest(trimmed: &str) -> Option<&str> {
 
 fn is_hr(s: &str) -> bool {
     let s = s.trim();
-    (s.len() >= 3) && (s.chars().all(|c| c == '-') || s.chars().all(|c| c == '*') || s.chars().all(|c| c == '_'))
+    (s.len() >= 3)
+        && (s.chars().all(|c| c == '-')
+            || s.chars().all(|c| c == '*')
+            || s.chars().all(|c| c == '_'))
 }
 
 /// Apply inline styling: `**bold**`, `*italic*`, `` `code` ``, `[text](url)`.

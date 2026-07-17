@@ -92,10 +92,7 @@ mod tests {
             sandbox_enabled: false,
         };
 
-        let result = tool
-            .execute(json!({"query": "hello"}), &ctx)
-            .await
-            .unwrap();
+        let result = tool.execute(json!({"query": "hello"}), &ctx).await.unwrap();
         assert_eq!(result, "No records database available.");
     }
 }

@@ -379,7 +379,9 @@ mod tests {
 
     fn test_mgr() -> (GoalManager, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let mgr = GoalManager { dir: dir.path().to_path_buf() };
+        let mgr = GoalManager {
+            dir: dir.path().to_path_buf(),
+        };
         (mgr, dir)
     }
 
@@ -545,7 +547,11 @@ mod tests {
         let (mgr, _dir) = test_mgr();
         let mut g = mgr.create("Preserve me").unwrap();
         g.priority = "high".into();
-        g.sub_goals = vec![SubGoal { title: "sub1".into(), status: GoalStatus::Active, progress: 50 }];
+        g.sub_goals = vec![SubGoal {
+            title: "sub1".into(),
+            status: GoalStatus::Active,
+            progress: 50,
+        }];
         g.next_action = Some("do something".into());
         mgr.save(&g).unwrap();
         let loaded = mgr.load(&g.id).unwrap();
@@ -633,4 +639,3 @@ mod tests {
         assert!(summary.contains("Summary Goal"));
     }
 }
-

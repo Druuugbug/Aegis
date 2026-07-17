@@ -107,7 +107,9 @@ fn render_menu(title: &str, items: &[String], sel: usize, prev_lines: usize) -> 
     let start = if sel < visible {
         0
     } else {
-        (sel + 1).saturating_sub(visible).min(n.saturating_sub(visible))
+        (sel + 1)
+            .saturating_sub(visible)
+            .min(n.saturating_sub(visible))
     };
 
     let mut rows = 0usize;
@@ -149,7 +151,10 @@ fn run_fallback(questions: &[ClarifyQuestion]) -> Vec<String> {
         if q.options.is_empty() {
             eprint!("{} ", "›".bright_magenta());
         } else {
-            eprint!("{} ", format!("选 1-{} 或直接输入 ›", q.options.len()).bright_magenta());
+            eprint!(
+                "{} ",
+                format!("选 1-{} 或直接输入 ›", q.options.len()).bright_magenta()
+            );
         }
         let _ = std::io::stderr().flush();
         let mut input = String::new();

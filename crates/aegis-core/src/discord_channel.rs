@@ -27,10 +27,7 @@ struct DiscordMessage {
 
 impl DiscordChannel {
     /// Create a new Discord channel client with bot token and channel ID.
-    pub fn new(
-        bot_token: impl Into<String>,
-        channel_id: impl Into<String>,
-    ) -> Self {
+    pub fn new(bot_token: impl Into<String>, channel_id: impl Into<String>) -> Self {
         Self {
             bot_token: bot_token.into(),
             channel_id: channel_id.into(),
@@ -63,10 +60,7 @@ impl Channel for DiscordChannel {
         if resp.status().is_success() {
             Ok(())
         } else {
-            Err(anyhow!(
-                "Discord connect failed: {}",
-                resp.status()
-            ))
+            Err(anyhow!("Discord connect failed: {}", resp.status()))
         }
     }
 
@@ -87,10 +81,7 @@ impl Channel for DiscordChannel {
             .await?;
 
         if !resp.status().is_success() {
-            return Err(anyhow!(
-                "Discord fetch messages failed: {}",
-                resp.status()
-            ));
+            return Err(anyhow!("Discord fetch messages failed: {}", resp.status()));
         }
 
         let messages: Vec<DiscordMessage> = resp.json().await?;
@@ -133,10 +124,7 @@ impl Channel for DiscordChannel {
             });
             let resp = self.client.post(webhook).json(&body).send().await?;
             if !resp.status().is_success() {
-                return Err(anyhow!(
-                    "Discord webhook send failed: {}",
-                    resp.status()
-                ));
+                return Err(anyhow!("Discord webhook send failed: {}", resp.status()));
             }
         } else {
             let url = format!(
@@ -154,10 +142,7 @@ impl Channel for DiscordChannel {
                 .send()
                 .await?;
             if !resp.status().is_success() {
-                return Err(anyhow!(
-                    "Discord send message failed: {}",
-                    resp.status()
-                ));
+                return Err(anyhow!("Discord send message failed: {}", resp.status()));
             }
         }
         Ok(())

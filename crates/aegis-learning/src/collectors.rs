@@ -131,7 +131,11 @@ impl Collector for GitCollector {
         }
         let total = conventional + freeform;
         if total >= 3 {
-            let style = if conventional * 2 >= total { "conventional" } else { "freeform" };
+            let style = if conventional * 2 >= total {
+                "conventional"
+            } else {
+                "freeform"
+            };
             let evidence = format!("{conventional} conventional / {freeform} freeform samples");
             if let Some(f) = self.fact("workflow", "commit_style", style, &evidence) {
                 out.push(f);
@@ -245,7 +249,12 @@ impl Collector for ShellCollector {
         // Infer the user's shell from $SHELL.
         if let Ok(shell) = std::env::var("SHELL") {
             let shell_name = shell.rsplit('/').next().unwrap_or("sh").to_string();
-            if let Some(f) = self.fact("environment", "shell", &shell_name, &format!("$SHELL={shell}")) {
+            if let Some(f) = self.fact(
+                "environment",
+                "shell",
+                &shell_name,
+                &format!("$SHELL={shell}"),
+            ) {
                 out.push(f);
             }
         }
@@ -357,7 +366,10 @@ impl Collector for ProjectCollector {
                 }
             }
             // Dockerfile / docker-compose
-            if repo.join("Dockerfile").is_file() || repo.join("docker-compose.yml").is_file() || repo.join("docker-compose.yaml").is_file() {
+            if repo.join("Dockerfile").is_file()
+                || repo.join("docker-compose.yml").is_file()
+                || repo.join("docker-compose.yaml").is_file()
+            {
                 containerized += 1;
             }
         }
@@ -407,7 +419,9 @@ pub struct EnvCollector {
 
 impl Default for EnvCollector {
     fn default() -> Self {
-        Self { filter: SensitiveFilter::new() }
+        Self {
+            filter: SensitiveFilter::new(),
+        }
     }
 }
 
@@ -458,14 +472,20 @@ impl Collector for EnvCollector {
         // Editor (D28 — DLP excludes PII but the editor name is fine).
         if let Ok(editor) = std::env::var("EDITOR") {
             let name = editor.rsplit('/').next().unwrap_or(&editor).to_string();
-            if let Some(f) = self.fact("preferences", "editor", &name, &format!("$EDITOR={editor}")) {
+            if let Some(f) = self.fact("preferences", "editor", &name, &format!("$EDITOR={editor}"))
+            {
                 out.push(f);
             }
         }
         // Visual editor fallback.
         if let Ok(visual) = std::env::var("VISUAL") {
             let name = visual.rsplit('/').next().unwrap_or(&visual).to_string();
-            if let Some(f) = self.fact("preferences", "visual_editor", &name, &format!("$VISUAL={visual}")) {
+            if let Some(f) = self.fact(
+                "preferences",
+                "visual_editor",
+                &name,
+                &format!("$VISUAL={visual}"),
+            ) {
                 out.push(f);
             }
         }
@@ -489,7 +509,12 @@ impl Collector for EnvCollector {
         if gitconfig.is_file() {
             if let Ok(text) = std::fs::read_to_string(&gitconfig) {
                 if let Some(name) = parse_gitconfig_kv(&text, "name") {
-                    if let Some(f) = self.fact("preferences", "git_user_name", &name, "~/.gitconfig [user].name") {
+                    if let Some(f) = self.fact(
+                        "preferences",
+                        "git_user_name",
+                        &name,
+                        "~/.gitconfig [user].name",
+                    ) {
                         out.push(f);
                     }
                 }
@@ -508,9 +533,17 @@ impl Collector for EnvCollector {
         }
 
         // Detect installed CLIs by spawning `which`.
-        for cli in ["git", "rustc", "cargo", "go", "python3", "node", "docker", "kubectl", "aws", "rg", "fd", "jq", "fzf", "tmux"] {
+        for cli in [
+            "git", "rustc", "cargo", "go", "python3", "node", "docker", "kubectl", "aws", "rg",
+            "fd", "jq", "fzf", "tmux",
+        ] {
             if cli_available(cli) {
-                if let Some(f) = self.fact("tools", "installed_cli", cli, &format!("`which {cli}` succeeded")) {
+                if let Some(f) = self.fact(
+                    "tools",
+                    "installed_cli",
+                    cli,
+                    &format!("`which {cli}` succeeded"),
+                ) {
                     out.push(f);
                 }
             }
@@ -670,7 +703,8 @@ pub(crate) fn read_git_log_samples(repo: &Path, max_messages: usize) -> Vec<Stri
 fn looks_conventional(msg: &str) -> bool {
     // Conventional Commits: type(scope)?: subject  (e.g. "feat: add X" or "fix(api): ...")
     let prefixes = [
-        "feat", "fix", "chore", "docs", "style", "refactor", "perf", "test", "build", "ci", "revert",
+        "feat", "fix", "chore", "docs", "style", "refactor", "perf", "test", "build", "ci",
+        "revert",
     ];
     if let Some(colon) = msg.find(':') {
         let head = &msg[..colon];
@@ -870,7 +904,10 @@ mod tests {
     fn test_parse_gitconfig_kv_user_section() {
         let text = "[user]\n\tname = Alice\n\temail = alice@example.com\n[core]\n\teditor = vim\n";
         assert_eq!(parse_gitconfig_kv(text, "name").as_deref(), Some("Alice"));
-        assert_eq!(parse_gitconfig_kv(text, "email").as_deref(), Some("alice@example.com"));
+        assert_eq!(
+            parse_gitconfig_kv(text, "email").as_deref(),
+            Some("alice@example.com")
+        );
         assert!(parse_gitconfig_kv(text, "editor").is_none());
     }
 
@@ -1017,7 +1054,11 @@ mod tests {
         // We can't easily unset $HOME, but we can verify the call doesn't panic
         // even when there are no repos.
         init();
-        let c = GitCollector { max_depth: 0, max_repos: 1, filter: SensitiveFilter::new() };
+        let c = GitCollector {
+            max_depth: 0,
+            max_repos: 1,
+            filter: SensitiveFilter::new(),
+        };
         // max_depth=0 means we never recurse, so the result is always empty.
         let facts = c.collect().unwrap();
         assert!(facts.is_empty());
@@ -1032,7 +1073,10 @@ mod tests {
 
     #[test]
     fn test_shell_collector_handles_no_home() {
-        let c = ShellCollector { max_lines: 1, filter: SensitiveFilter::new() };
+        let c = ShellCollector {
+            max_lines: 1,
+            filter: SensitiveFilter::new(),
+        };
         let facts = c.collect().unwrap();
         assert!(facts.is_empty());
     }
@@ -1068,7 +1112,11 @@ mod tests {
         let c = EnvCollector::new();
         let facts = c.collect().unwrap();
         for f in &facts {
-            assert!(!f.value.contains("AKIAIOSFODNN7EXAMPLE"), "editor value leaked: {:?}", f);
+            assert!(
+                !f.value.contains("AKIAIOSFODNN7EXAMPLE"),
+                "editor value leaked: {:?}",
+                f
+            );
         }
         std::env::remove_var("EDITOR");
     }

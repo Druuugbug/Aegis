@@ -252,7 +252,10 @@ mod tests {
         handle.resume();
         tokio::time::sleep(Duration::from_millis(60)).await;
         let after_resume = engine.status().last_run;
-        assert!(after_resume.is_some(), "at least the initial run should have executed");
+        assert!(
+            after_resume.is_some(),
+            "at least the initial run should have executed"
+        );
         handle.stop();
     }
 

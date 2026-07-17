@@ -15,21 +15,21 @@ name = "aegis"
 path = "src/main.rs"
 
 [dependencies]
-aegis-core = { path = "../../crates/aegis-core", version = "1.0.6", package = "aegis-agent-core" }
-aegis-memory = { path = "../../crates/aegis-memory", version = "1.0.6", package = "aegis-agent-memory" }
-aegis-provider = { path = "../../crates/aegis-provider", version = "1.0.6" }
-aegis-record = { path = "../../crates/aegis-record", version = "1.0.6" }
-aegis-security = { path = "../../crates/aegis-security", version = "1.0.6" }
-aegis-tools = { path = "../../crates/aegis-tools", version = "1.0.6" }
-aegis-lsp = { path = "../../crates/aegis-lsp", version = "1.0.6" }
-aegis-mcp = { path = "../../crates/aegis-mcp", version = "1.0.6" }
-aegis-perception = { path = "../../crates/aegis-perception", version = "1.0.6" }
-aegis-import = { path = "../../crates/aegis-import", version = "1.0.6", optional = true }
-aegis-selfdev = { path = "../../crates/aegis-selfdev", version = "1.0.6", optional = true }
-aegis-learning = { path = "../../crates/aegis-learning", version = "1.0.6" }
-aegis-browser = { path = "../../crates/aegis-browser", version = "1.0.6" }
-aegis-feedback = { path = "../../crates/aegis-feedback", version = "1.0.6" }
-aegis-a2a = { path = "../../crates/aegis-a2a", version = "1.0.6" }
+aegis-core = { path = "../../crates/aegis-core", version = "1.0.7", package = "aegis-agent-core" }
+aegis-memory = { path = "../../crates/aegis-memory", version = "1.0.7", package = "aegis-agent-memory" }
+aegis-provider = { path = "../../crates/aegis-provider", version = "1.0.7" }
+aegis-record = { path = "../../crates/aegis-record", version = "1.0.7" }
+aegis-security = { path = "../../crates/aegis-security", version = "1.0.7" }
+aegis-tools = { path = "../../crates/aegis-tools", version = "1.0.7" }
+aegis-lsp = { path = "../../crates/aegis-lsp", version = "1.0.7" }
+aegis-mcp = { path = "../../crates/aegis-mcp", version = "1.0.7" }
+aegis-perception = { path = "../../crates/aegis-perception", version = "1.0.7" }
+aegis-import = { path = "../../crates/aegis-import", version = "1.0.7", optional = true }
+aegis-selfdev = { path = "../../crates/aegis-selfdev", version = "1.0.7", optional = true }
+aegis-learning = { path = "../../crates/aegis-learning", version = "1.0.7" }
+aegis-browser = { path = "../../crates/aegis-browser", version = "1.0.7" }
+aegis-feedback = { path = "../../crates/aegis-feedback", version = "1.0.7" }
+aegis-a2a = { path = "../../crates/aegis-a2a", version = "1.0.7" }
 axum = { workspace = true }
 tower-http = { workspace = true }
 thiserror = { workspace = true }
@@ -41,7 +41,7 @@ rustyline = { workspace = true }
 reedline = { workspace = true }
 anyhow = { workspace = true }
 base64 = { workspace = true }
-aegis-types = { path = "../../crates/aegis-types", version = "1.0.6" }
+aegis-types = { path = "../../crates/aegis-types", version = "1.0.7" }
 serde_json = { workspace = true }
 serde = { workspace = true }
 serde_yaml = "0.9"

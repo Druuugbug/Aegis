@@ -74,7 +74,11 @@ impl Write for Handle {
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).file.flush()
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .file
+            .flush()
     }
 }
 

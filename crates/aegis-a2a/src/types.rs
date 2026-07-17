@@ -242,7 +242,12 @@ pub struct JsonRpcError {
 impl JsonRpcResponse {
     /// Creates a successful response with the given result.
     pub fn ok(id: Option<serde_json::Value>, result: serde_json::Value) -> Self {
-        Self { jsonrpc: "2.0".into(), id, result: Some(result), error: None }
+        Self {
+            jsonrpc: "2.0".into(),
+            id,
+            result: Some(result),
+            error: None,
+        }
     }
     /// Creates an error response with the given code and message.
     pub fn err(id: Option<serde_json::Value>, code: i32, message: impl Into<String>) -> Self {
@@ -250,7 +255,11 @@ impl JsonRpcResponse {
             jsonrpc: "2.0".into(),
             id,
             result: None,
-            error: Some(JsonRpcError { code, message: message.into(), data: None }),
+            error: Some(JsonRpcError {
+                code,
+                message: message.into(),
+                data: None,
+            }),
         }
     }
 }
@@ -273,11 +282,7 @@ mod tests {
 
     #[test]
     fn test_jsonrpc_response_err() {
-        let resp = JsonRpcResponse::err(
-            Some(serde_json::json!(42)),
-            -32601,
-            "Method not found",
-        );
+        let resp = JsonRpcResponse::err(Some(serde_json::json!(42)), -32601, "Method not found");
         assert_eq!(resp.jsonrpc, "2.0");
         assert!(resp.result.is_none());
         let err = resp.error.as_ref().unwrap();
@@ -294,7 +299,10 @@ mod tests {
         );
         let json = serde_json::to_string(&original).unwrap();
         let decoded: JsonRpcResponse = serde_json::from_str(&json).unwrap();
-        assert_eq!(decoded.result.unwrap(), serde_json::json!({"hello": "world"}));
+        assert_eq!(
+            decoded.result.unwrap(),
+            serde_json::json!({"hello": "world"})
+        );
     }
 
     #[test]
@@ -319,18 +327,36 @@ mod tests {
 
     #[test]
     fn test_task_state_serialized_form() {
-        assert_eq!(serde_json::to_string(&TaskState::Submitted).unwrap(), "\"submitted\"");
-        assert_eq!(serde_json::to_string(&TaskState::Working).unwrap(), "\"working\"");
-        assert_eq!(serde_json::to_string(&TaskState::Completed).unwrap(), "\"completed\"");
-        assert_eq!(serde_json::to_string(&TaskState::InputRequired).unwrap(), "\"input-required\"");
-        assert_eq!(serde_json::to_string(&TaskState::AuthRequired).unwrap(), "\"auth-required\"");
+        assert_eq!(
+            serde_json::to_string(&TaskState::Submitted).unwrap(),
+            "\"submitted\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TaskState::Working).unwrap(),
+            "\"working\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TaskState::Completed).unwrap(),
+            "\"completed\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TaskState::InputRequired).unwrap(),
+            "\"input-required\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TaskState::AuthRequired).unwrap(),
+            "\"auth-required\""
+        );
     }
 
     #[test]
     fn test_part_uses_kind_discriminator() {
         let p = Part::Text { text: "hi".into() };
         let json = serde_json::to_string(&p).unwrap();
-        assert!(json.contains("\"kind\""), "A2A Part must use `kind`: {json}");
+        assert!(
+            json.contains("\"kind\""),
+            "A2A Part must use `kind`: {json}"
+        );
         assert!(json.contains("\"text\""));
         // round-trips
         let back: Part = serde_json::from_str(&json).unwrap();
@@ -364,7 +390,10 @@ mod tests {
             updated_at: now,
         };
         let json = serde_json::to_string(&task).unwrap();
-        assert!(json.contains("\"history\""), "Task must use `history`: {json}");
+        assert!(
+            json.contains("\"history\""),
+            "Task must use `history`: {json}"
+        );
         assert!(json.contains("\"contextId\":\"c1\""));
         assert!(json.contains("\"messageId\":\"m1\""));
         let back: Task = serde_json::from_str(&json).unwrap();
@@ -430,16 +459,29 @@ mod tests {
     #[test]
     fn test_agent_card_camel_case_json() {
         let card = AgentCard {
-            name: "a".into(), description: "b".into(), url: "c".into(),
-            version: "1".into(), protocol_version: "0.2.5".into(),
-            capabilities: AgentCapabilities { streaming: false, push_notifications: false, state_transition_history: false },
+            name: "a".into(),
+            description: "b".into(),
+            url: "c".into(),
+            version: "1".into(),
+            protocol_version: "0.2.5".into(),
+            capabilities: AgentCapabilities {
+                streaming: false,
+                push_notifications: false,
+                state_transition_history: false,
+            },
             skills: vec![],
             security_schemes: vec![],
             default_input_modes: vec![],
             default_output_modes: vec![],
         };
         let json = serde_json::to_string(&card).unwrap();
-        assert!(json.contains("protocolVersion"), "should use camelCase: {json}");
-        assert!(json.contains("defaultInputModes"), "should use camelCase: {json}");
+        assert!(
+            json.contains("protocolVersion"),
+            "should use camelCase: {json}"
+        );
+        assert!(
+            json.contains("defaultInputModes"),
+            "should use camelCase: {json}"
+        );
     }
 }

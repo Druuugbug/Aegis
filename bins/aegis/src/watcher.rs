@@ -99,12 +99,18 @@ fn alert_text(w: &WatchConfig, stdout: &str) -> String {
         .message
         .clone()
         .unwrap_or_else(|| format!("[{}] check triggered: {{output}}", w.name));
-    tmpl.replace("{name}", &w.name).replace("{output}", &out_short)
+    tmpl.replace("{name}", &w.name)
+        .replace("{output}", &out_short)
 }
 
 /// Push + log an alert. Pushes to Feishu only when configured and `notify_to`
 /// is set; always logs (tracing + `~/.aegis/logs/alerts.log`).
-async fn fire_alert(w: &WatchConfig, stdout: &str, feishu: &GatewayFeishuConfig, alerts_max_bytes: u64) {
+async fn fire_alert(
+    w: &WatchConfig,
+    stdout: &str,
+    feishu: &GatewayFeishuConfig,
+    alerts_max_bytes: u64,
+) {
     let text = alert_text(w, stdout);
     warn!(watch = %w.name, "ALERT: {text}");
 
@@ -132,7 +138,10 @@ async fn fire_alert(w: &WatchConfig, stdout: &str, feishu: &GatewayFeishuConfig,
     if let Some(to) = w.notify_to.as_deref().filter(|s| !s.is_empty()) {
         if feishu.enabled && !feishu.app_id.is_empty() {
             let ch = FeishuChannel::new(&feishu.app_id, &feishu.app_secret, to);
-            if let Err(e) = ch.send(OutboundMessage::new(to, format!("⚠️ {text}"))).await {
+            if let Err(e) = ch
+                .send(OutboundMessage::new(to, format!("⚠️ {text}")))
+                .await
+            {
                 warn!(watch = %w.name, "alert push failed: {e}");
             }
         }
@@ -146,7 +155,9 @@ pub fn default_host_watches(cfg: &SelfWatchConfig) -> Vec<WatchConfig> {
     if !cfg.enabled {
         return Vec::new();
     }
-    let cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1) as f64;
+    let cpus = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1) as f64;
     let load_threshold = (cpus * 2.0).max(2.0);
     vec![
         WatchConfig {
@@ -214,7 +225,10 @@ pub async fn run_watchers(config: Config) {
     loop {
         let now = Instant::now();
         for w in &watches {
-            let interval = intervals.get(&w.name).copied().unwrap_or(Duration::from_secs(300));
+            let interval = intervals
+                .get(&w.name)
+                .copied()
+                .unwrap_or(Duration::from_secs(300));
             let due = last_run
                 .get(&w.name)
                 .map_or(true, |t| now.duration_since(*t) >= interval);
@@ -224,9 +238,9 @@ pub async fn run_watchers(config: Config) {
             last_run.insert(w.name.clone(), now);
             let (exit_ok, stdout) = run_check(w).await;
             if fired(w, exit_ok, &stdout) {
-                let cooled = last_alert
-                    .get(&w.name)
-                    .map_or(true, |t| now.duration_since(*t) >= Duration::from_secs(w.cooldown_secs));
+                let cooled = last_alert.get(&w.name).map_or(true, |t| {
+                    now.duration_since(*t) >= Duration::from_secs(w.cooldown_secs)
+                });
                 if cooled {
                     fire_alert(w, &stdout, &config.gateway.feishu, alerts_max_bytes).await;
                     last_alert.insert(w.name.clone(), now);
@@ -256,7 +270,11 @@ pub fn run_watch_list(config: &Config) {
         } else {
             "non-zero exit".to_string()
         };
-        let notify = w.notify_to.as_deref().filter(|s| !s.is_empty()).unwrap_or("(log only)");
+        let notify = w
+            .notify_to
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .unwrap_or("(log only)");
         let state = if w.enabled { "" } else { " [disabled]" };
         println!(
             "  {}{}  schedule={}  when {}  notify={}",
@@ -264,7 +282,6 @@ pub fn run_watch_list(config: &Config) {
         );
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -288,7 +305,10 @@ mod tests {
 
     #[test]
     fn test_default_host_watches_disabled() {
-        let cfg = SelfWatchConfig { enabled: false, ..Default::default() };
+        let cfg = SelfWatchConfig {
+            enabled: false,
+            ..Default::default()
+        };
         assert!(default_host_watches(&cfg).is_empty());
     }
 }

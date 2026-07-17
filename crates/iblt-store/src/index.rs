@@ -74,7 +74,10 @@ impl KeyIndex {
 
     /// Range scan: return entries with keys in [start, end).
     pub fn range(&self, start: &[u8], end: &[u8]) -> Vec<&IndexEntry> {
-        self.index.range(start.to_vec()..end.to_vec()).map(|(_, e)| e).collect()
+        self.index
+            .range(start.to_vec()..end.to_vec())
+            .map(|(_, e)| e)
+            .collect()
     }
 
     /// Prefix scan: return entries whose keys start with the given prefix.

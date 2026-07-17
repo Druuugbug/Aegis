@@ -123,7 +123,9 @@ impl EventSource {
             self.listener = Some(listener);
         }
 
-        let listener = self.listener.as_ref()
+        let listener = self
+            .listener
+            .as_ref()
             .expect("listener initialized in guard above");
         let (mut stream, _) = listener.accept().await?;
 
@@ -132,15 +134,13 @@ impl EventSource {
         buf.truncate(n);
 
         let raw = String::from_utf8_lossy(&buf);
-        let payload = raw
-            .split_once("\r\n\r\n")
-            .and_then(|(_, body)| {
-                if body.is_empty() {
-                    None
-                } else {
-                    Some(body.to_string())
-                }
-            });
+        let payload = raw.split_once("\r\n\r\n").and_then(|(_, body)| {
+            if body.is_empty() {
+                None
+            } else {
+                Some(body.to_string())
+            }
+        });
 
         Ok(TriggerEvent {
             task_id: self.task_id.clone(),
@@ -157,7 +157,9 @@ impl EventSource {
             }
         }
 
-        let interval = self.interval.as_mut()
+        let interval = self
+            .interval
+            .as_mut()
             .expect("interval initialized in guard above");
 
         loop {

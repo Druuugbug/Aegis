@@ -13,8 +13,7 @@ use aegis_record::SessionStore;
 fn open_store() -> Result<SessionStore, ApiError> {
     let db_dir = config::config_dir();
     std::fs::create_dir_all(&db_dir).map_err(|e| ApiError::Internal(e.to_string()))?;
-    SessionStore::open(&db_dir.join("sessions.db"))
-        .map_err(|e| ApiError::Internal(e.to_string()))
+    SessionStore::open(&db_dir.join("sessions.db")).map_err(|e| ApiError::Internal(e.to_string()))
 }
 
 /// Response body for a list of sessions.
@@ -66,13 +65,16 @@ pub async fn list_sessions(
     let store = open_store()?;
     let limit = query.limit.unwrap_or(50);
     let rows = store.list_sessions(limit)?;
-    let sessions = rows.into_iter().map(|s| SessionSummary {
-        id: s.id,
-        title: s.title,
-        model: s.model,
-        started_at: s.started_at,
-        message_count: s.message_count,
-    }).collect();
+    let sessions = rows
+        .into_iter()
+        .map(|s| SessionSummary {
+            id: s.id,
+            title: s.title,
+            model: s.model,
+            started_at: s.started_at,
+            message_count: s.message_count,
+        })
+        .collect();
     Ok(Json(SessionListResponse { sessions }))
 }
 
@@ -83,15 +85,20 @@ pub async fn get_session(
 ) -> Result<Json<SessionDetailResponse>, ApiError> {
     let store = open_store()?;
     let all = store.list_sessions(1000)?;
-    let session = all.into_iter().find(|s| s.id == session_id)
+    let session = all
+        .into_iter()
+        .find(|s| s.id == session_id)
         .ok_or_else(|| ApiError::NotFound(format!("session {session_id}")))?;
     let message_rows = store.get_messages(&session_id)?;
-    let messages = message_rows.into_iter().map(|m| MessageInfo {
-        role: m.role,
-        content: m.content,
-        tool_name: m.tool_name,
-        record_type: m.record_type,
-    }).collect();
+    let messages = message_rows
+        .into_iter()
+        .map(|m| MessageInfo {
+            role: m.role,
+            content: m.content,
+            tool_name: m.tool_name,
+            record_type: m.record_type,
+        })
+        .collect();
     Ok(Json(SessionDetailResponse {
         id: session.id,
         title: session.title,

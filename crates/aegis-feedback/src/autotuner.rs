@@ -105,7 +105,10 @@ impl AutoTuner {
         if error_rate > self.thresholds.high_error_rate {
             actions.push(TuningAction {
                 action_type: TuningActionType::SwitchModel,
-                reason: format!("error rate {error_rate:.2} exceeds threshold {}", self.thresholds.high_error_rate),
+                reason: format!(
+                    "error rate {error_rate:.2} exceeds threshold {}",
+                    self.thresholds.high_error_rate
+                ),
                 suggested_value: None,
             });
         }
@@ -113,12 +116,17 @@ impl AutoTuner {
         if avg_confidence < self.thresholds.low_confidence {
             actions.push(TuningAction {
                 action_type: TuningActionType::IncreaseTemperature,
-                reason: format!("avg confidence {avg_confidence:.2} below threshold {}", self.thresholds.low_confidence),
+                reason: format!(
+                    "avg confidence {avg_confidence:.2} below threshold {}",
+                    self.thresholds.low_confidence
+                ),
                 suggested_value: Some("0.8".into()),
             });
             actions.push(TuningAction {
                 action_type: TuningActionType::IncreaseReflect,
-                reason: format!("avg confidence {avg_confidence:.2} below threshold — reflect more often"),
+                reason: format!(
+                    "avg confidence {avg_confidence:.2} below threshold — reflect more often"
+                ),
                 suggested_value: Some("2".into()),
             });
         }
@@ -126,7 +134,10 @@ impl AutoTuner {
         if avg_latency_ms > self.thresholds.high_latency_ms {
             actions.push(TuningAction {
                 action_type: TuningActionType::ReduceMaxTokens,
-                reason: format!("avg latency {avg_latency_ms}ms exceeds threshold {}ms", self.thresholds.high_latency_ms),
+                reason: format!(
+                    "avg latency {avg_latency_ms}ms exceeds threshold {}ms",
+                    self.thresholds.high_latency_ms
+                ),
                 suggested_value: Some("2048".into()),
             });
         }
@@ -171,7 +182,9 @@ mod tests {
         }
         let actions = tuner.analyze();
         assert!(
-            actions.iter().any(|a| a.action_type == TuningActionType::SwitchModel),
+            actions
+                .iter()
+                .any(|a| a.action_type == TuningActionType::SwitchModel),
             "expected SwitchModel action, got: {actions:?}"
         );
     }
@@ -190,12 +203,17 @@ mod tests {
         let mut tuner = AutoTuner::new(20);
         for _ in 0..5 {
             tuner.push_signal(FeedbackSignal {
-                signal: Signal { source: SignalSource::TaskCompleted, score: 0.3 },
+                signal: Signal {
+                    source: SignalSource::TaskCompleted,
+                    score: 0.3,
+                },
                 latency_ms: Some(8000),
             });
         }
         let actions = tuner.analyze();
-        assert!(actions.iter().any(|a| a.action_type == TuningActionType::ReduceMaxTokens));
+        assert!(actions
+            .iter()
+            .any(|a| a.action_type == TuningActionType::ReduceMaxTokens));
     }
 
     #[test]

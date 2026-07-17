@@ -219,7 +219,10 @@ pub struct UpdateConfig {
 
 impl Default for UpdateConfig {
     fn default() -> Self {
-        Self { check: true, repo: String::new() }
+        Self {
+            check: true,
+            repo: String::new(),
+        }
     }
 }
 
@@ -551,7 +554,12 @@ pub struct GatewayA2aConfig {
 
 impl Default for GatewayA2aConfig {
     fn default() -> Self {
-        Self { enabled: false, host: d_gw_a2a_host(), port: d_gw_a2a_port(), token: None }
+        Self {
+            enabled: false,
+            host: d_gw_a2a_host(),
+            port: d_gw_a2a_port(),
+            token: None,
+        }
     }
 }
 
@@ -608,10 +616,7 @@ pub struct PeerConfig {
 /// security-first stance of the identity system: new peers must be
 /// explicitly authorized before they can invoke anything beyond read-only
 /// tools.
-pub fn peer_trust_level(
-    peers: &[PeerConfig],
-    agent_id: &str,
-) -> aegis_security::TrustLevel {
+pub fn peer_trust_level(peers: &[PeerConfig], agent_id: &str) -> aegis_security::TrustLevel {
     peers
         .iter()
         .find(|p| p.name == agent_id)
@@ -1046,7 +1051,12 @@ pub fn model_context_window(model: &str) -> u32 {
         8_192
     } else if starts("llama-2") {
         4_096
-    } else if m.contains("mistral") || m.contains("mixtral") || starts("deepseek") || starts("qwen") || starts("qwq") {
+    } else if m.contains("mistral")
+        || m.contains("mixtral")
+        || starts("deepseek")
+        || starts("qwen")
+        || starts("qwq")
+    {
         131_072
     } else if m.contains("minimax") {
         // MiniMax long-context series (M1/Text-01/M3 ~1M). Override with
@@ -1776,10 +1786,10 @@ impl Config {
     /// budget), so auto-lite never silently degrades response quality.
     fn lite_clamps(&mut self) {
         self.components.tier = "minimal".into(); // prefer lightweight components
-        // NOTE: passive learning stays ON in lite — building the user profile is
-        // a core capability, not something to trade away for a little CPU.
-        // NOTE: do NOT clamp memory.max_entries — storage is cheap (a few MB).
-        // Gateway: fewer live sessions + shorter idle eviction + lower concurrency.
+                                                 // NOTE: passive learning stays ON in lite — building the user profile is
+                                                 // a core capability, not something to trade away for a little CPU.
+                                                 // NOTE: do NOT clamp memory.max_entries — storage is cheap (a few MB).
+                                                 // Gateway: fewer live sessions + shorter idle eviction + lower concurrency.
         self.gateway.max_live_sessions = self.gateway.max_live_sessions.min(4);
         self.gateway.session_idle_secs = self.gateway.session_idle_secs.min(600);
         self.gateway.max_concurrency = self.gateway.max_concurrency.min(2);
@@ -1896,7 +1906,10 @@ impl Config {
             self.upgrade.auto_apply
         );
         anyhow::ensure!(
-            matches!(self.upgrade.channel.as_str(), "stable" | "nightly" | "canary"),
+            matches!(
+                self.upgrade.channel.as_str(),
+                "stable" | "nightly" | "canary"
+            ),
             "upgrade.channel must be one of \"stable\" | \"nightly\" | \"canary\"; got {:?}",
             self.upgrade.channel
         );
@@ -2027,7 +2040,10 @@ mod tests {
         c.profile = "lite".into();
         // "lite" is applied via apply_profile, not auto_tune; auto_tune no-ops.
         assert!(c.auto_tune_resources().is_none());
-        assert_eq!(c.agent.context_window, 50, "auto_tune must not clamp explicit profiles");
+        assert_eq!(
+            c.agent.context_window, 50,
+            "auto_tune must not clamp explicit profiles"
+        );
     }
 
     #[test]
@@ -2043,7 +2059,10 @@ mod tests {
         assert_eq!(c.agent.context_window, 50, "lite must not shrink context");
         assert_eq!(c.memory.recall_limit, 5, "lite must not shrink recall");
         assert!(c.learning.enabled, "lite keeps passive learning ON");
-        assert!(!c.memory.existence_encoding, "lite must not force terse recall");
+        assert!(
+            !c.memory.existence_encoding,
+            "lite must not force terse recall"
+        );
     }
 
     #[test]

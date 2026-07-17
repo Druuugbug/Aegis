@@ -478,7 +478,11 @@ pub struct CompositeMemory {
 
 impl CompositeMemory {
     /// Compose an external `primary` with a `local` backend in the given mode.
-    pub fn new(primary: Box<dyn MemoryBackend>, local: Box<dyn MemoryBackend>, mode: CompositeMode) -> Self {
+    pub fn new(
+        primary: Box<dyn MemoryBackend>,
+        local: Box<dyn MemoryBackend>,
+        mode: CompositeMode,
+    ) -> Self {
         Self {
             primary,
             local,
@@ -614,7 +618,12 @@ impl MutationHookBackend {
         )
         .await;
         match result {
-            Ok(Ok(resp)) => resp.message.text().trim().to_lowercase().contains("supersede"),
+            Ok(Ok(resp)) => resp
+                .message
+                .text()
+                .trim()
+                .to_lowercase()
+                .contains("supersede"),
             _ => false, // On timeout/error, keep both (safe default)
         }
     }
@@ -671,7 +680,11 @@ impl MemoryBackend for MutationHookBackend {
         user_pinned: bool,
     ) -> Result<()> {
         // Search for potentially conflicting existing memories
-        let query = if let Some(k) = key { k } else { &content[..content.len().min(100)] };
+        let query = if let Some(k) = key {
+            k
+        } else {
+            &content[..content.len().min(100)]
+        };
         let existing = self.inner.search(query, 3).await.unwrap_or_default();
 
         // Check each existing memory for supersession
@@ -688,7 +701,9 @@ impl MemoryBackend for MutationHookBackend {
         }
 
         // Insert the new memory
-        self.inner.remember_kind(content, kind, key, user_pinned).await
+        self.inner
+            .remember_kind(content, kind, key, user_pinned)
+            .await
     }
 }
 
@@ -738,8 +753,14 @@ mod tests {
     #[tokio::test]
     async fn fallback_uses_primary_when_healthy() {
         let fm = FallbackMemory::new(
-            Box::new(StubBackend { label: "remote", fail: false }),
-            Box::new(StubBackend { label: "local", fail: false }),
+            Box::new(StubBackend {
+                label: "remote",
+                fail: false,
+            }),
+            Box::new(StubBackend {
+                label: "local",
+                fail: false,
+            }),
         );
         let hits = fm.search("q", 5).await.expect("ok");
         assert_eq!(hits[0].content, "from remote");
@@ -748,8 +769,14 @@ mod tests {
     #[tokio::test]
     async fn fallback_switches_to_secondary_on_failure() {
         let fm = FallbackMemory::new(
-            Box::new(StubBackend { label: "remote", fail: true }),
-            Box::new(StubBackend { label: "local", fail: false }),
+            Box::new(StubBackend {
+                label: "remote",
+                fail: true,
+            }),
+            Box::new(StubBackend {
+                label: "local",
+                fail: false,
+            }),
         );
         let hits = fm.search("q", 5).await.expect("ok via fallback");
         assert_eq!(hits[0].content, "from local");
@@ -762,8 +789,14 @@ mod tests {
     #[tokio::test]
     async fn name_reflects_primary() {
         let fm = FallbackMemory::new(
-            Box::new(StubBackend { label: "remote", fail: false }),
-            Box::new(StubBackend { label: "local", fail: false }),
+            Box::new(StubBackend {
+                label: "remote",
+                fail: false,
+            }),
+            Box::new(StubBackend {
+                label: "local",
+                fail: false,
+            }),
         );
         assert_eq!(fm.name(), "remote");
     }

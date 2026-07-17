@@ -1,8 +1,11 @@
 use crate::config::Config;
 use crate::context_window::ContextWindowManager;
+use crate::memory_backend::MemoryBackend;
 use crate::plugin::PluginRegistry;
 use crate::steer::{SteerInstruction, SteerManager};
-use aegis_feedback::{AutoTuner, FeedbackCollector, FeedbackSignal, StrategyManager, TaskContext as FbTaskContext};
+use aegis_feedback::{
+    AutoTuner, FeedbackCollector, FeedbackSignal, StrategyManager, TaskContext as FbTaskContext,
+};
 use aegis_goals::GoalManager;
 use aegis_memory::sidecar::{spawn_relevance_check, SidecarConfig};
 use aegis_memory::MemoryEntry;
@@ -10,9 +13,8 @@ use aegis_provider::{Provider, StreamEvent};
 use aegis_record::{MessageRow, RecordType, SessionStore};
 use aegis_tools::{ToolContext, ToolRegistry};
 use aegis_types::message::{Content, LlmResponse, Message, ToolCall};
-use crate::memory_backend::MemoryBackend;
 use anyhow::Result;
-use futures::{StreamExt, future::join_all};
+use futures::{future::join_all, StreamExt};
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
@@ -419,6 +421,7 @@ fn build_system_prompt(
     // Package name, install channels and arch list are public facts, literal.
     parts.push(format!(
         "# Aegis Origin & Self-Update\n\
+         (Reference facts about yourself — draw on them when relevant and answer naturally and briefly. Do NOT recite this section verbatim or list every install command / crate unless the user actually asks for them.)\n\
          I am Aegis — an open-source (MIT) cognitive agent runtime written in Rust. I am NOT the underlying LLM/model that powers me, and NOT any similarly-named product. Source repo: {repo} (bugs → its GitHub Issues). This build's version: {ver}.\n\
          On crates.io my package is `aegis-agent` — the bare name `aegis` was taken by an unrelated 2021 AEGIS crypto crate — but the installed executable is still `aegis`. For the same reason two published crates carry an `-agent` suffix: `aegis-agent-core` (this engine, `aegis-core` in-tree) and `aegis-agent-memory`.\n\
          Install or upgrade me (upgrading = re-running any one channel):\n\
@@ -449,7 +452,9 @@ fn build_system_prompt(
     }
 
     if !strategies.is_empty() {
-        parts.push("\n# Relevant Skills (matched to your request; learned or installed)".to_string());
+        parts.push(
+            "\n# Relevant Skills (matched to your request; learned or installed)".to_string(),
+        );
         for s in strategies {
             let desc = if s.description.is_empty() {
                 String::new()
@@ -552,11 +557,13 @@ fn render_runtime_context(
         degraded.push("frugal mode: on (smaller context, fewer recalled memories)".into());
     }
     if !degraded.is_empty() {
-        out.push_str(&format!("\n⚠️ Currently degraded: {}.", degraded.join("; ")));
+        out.push_str(&format!(
+            "\n⚠️ Currently degraded: {}.",
+            degraded.join("; ")
+        ));
     }
     out
 }
-
 
 fn load_user_facts(enabled: bool) -> Option<String> {
     if !enabled {
@@ -586,7 +593,10 @@ fn load_soul_md() -> Option<String> {
 /// precedence. Returns the concatenated context (with source-path headers) or
 /// `None` when disabled / nothing found. Failures degrade to `None` so a
 /// missing file never breaks startup.
-fn load_project_context(cwd: &std::path::Path, cfg: &crate::config::ContextConfig) -> Option<String> {
+fn load_project_context(
+    cwd: &std::path::Path,
+    cfg: &crate::config::ContextConfig,
+) -> Option<String> {
     if !cfg.project_files {
         return None;
     }
@@ -700,7 +710,9 @@ fn expand_context_imports(
                 // Confine imports to the workspace tree (cwd and its ancestors).
                 let canon = target.canonicalize().unwrap_or_else(|_| target.clone());
                 let within = canon.starts_with(cwd)
-                    || cwd.ancestors().any(|a| canon.starts_with(a) && a.join(".git").exists());
+                    || cwd
+                        .ancestors()
+                        .any(|a| canon.starts_with(a) && a.join(".git").exists());
                 if within && seen.insert(canon.clone()) {
                     if let Ok(mut inner) = std::fs::read_to_string(&target) {
                         if inner.len() > file_cap {
@@ -708,7 +720,9 @@ fn expand_context_imports(
                         }
                         let expanded = target
                             .parent()
-                            .map(|p| expand_context_imports(&inner, p, cwd, file_cap, depth + 1, seen))
+                            .map(|p| {
+                                expand_context_imports(&inner, p, cwd, file_cap, depth + 1, seen)
+                            })
                             .unwrap_or(inner);
                         result.push_str(&expanded);
                         result.push('\n');
@@ -865,7 +879,14 @@ fn jaccard(a: &str, b: &str) -> f32 {
 fn looks_sensitive(s: &str) -> bool {
     let l = s.to_lowercase();
     [
-        "api_key", "apikey", "password", "passwd", "secret", "token", "-----begin", "bearer ",
+        "api_key",
+        "apikey",
+        "password",
+        "passwd",
+        "secret",
+        "token",
+        "-----begin",
+        "bearer ",
     ]
     .iter()
     .any(|p| l.contains(p))
@@ -919,6 +940,56 @@ fn strip_think_tags(text: &str) -> String {
     } else {
         trimmed.to_string()
     }
+}
+
+fn compact_session_text(raw: &str, max_chars: usize) -> Option<String> {
+    let stripped = strip_think_tags(raw);
+    let stripped = stripped.trim();
+    if stripped.is_empty() || stripped.starts_with("<think") {
+        return None;
+    }
+
+    let mut compact = stripped.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.chars().count() > max_chars {
+        compact = compact
+            .chars()
+            .take(max_chars.saturating_sub(1))
+            .collect::<String>();
+        compact.push('…');
+    }
+    Some(compact)
+}
+
+fn clean_session_title(title: Option<String>) -> String {
+    title
+        .as_deref()
+        .and_then(|raw| compact_session_text(raw, 60))
+        .unwrap_or_else(|| "(untitled)".to_string())
+}
+
+fn session_preview_title(store: &SessionStore, id: &str, title: Option<String>) -> String {
+    let title = clean_session_title(title);
+    if title != "(untitled)" {
+        return title;
+    }
+
+    store
+        .get_messages(id)
+        .ok()
+        .and_then(|messages| {
+            messages
+                .iter()
+                .filter(|m| m.role == "user")
+                .filter_map(|m| m.content.as_deref())
+                .find_map(|content| compact_session_text(content, 60))
+                .or_else(|| {
+                    messages
+                        .iter()
+                        .filter_map(|m| m.content.as_deref())
+                        .find_map(|content| compact_session_text(content, 60))
+                })
+        })
+        .unwrap_or_else(|| "(untitled)".to_string())
 }
 
 // ── Agent ──
@@ -1010,11 +1081,13 @@ impl Agent {
                     )
                 })
                 .collect();
-            Some(Arc::new(aegis_lsp::LspManager::new(aegis_lsp::LspSettings {
-                servers,
-                timeout_ms: config.lsp.timeout_ms,
-                max_diagnostics: config.lsp.max_diagnostics,
-            })))
+            Some(Arc::new(aegis_lsp::LspManager::new(
+                aegis_lsp::LspSettings {
+                    servers,
+                    timeout_ms: config.lsp.timeout_ms,
+                    max_diagnostics: config.lsp.max_diagnostics,
+                },
+            )))
         } else {
             None
         };
@@ -1423,31 +1496,33 @@ impl Agent {
             if let Some((mime, data)) = rest.rsplit_once(':') {
                 let data = data.trim_end_matches(']');
                 let mime = mime.to_string();
-                return Message::tool_result_blocks(call_id, vec![
-                    aegis_types::message::ContentBlock::Image {
+                return Message::tool_result_blocks(
+                    call_id,
+                    vec![aegis_types::message::ContentBlock::Image {
                         source: aegis_types::message::ImageSource {
                             source_type: "base64".into(),
                             media_type: mime,
                             data: data.to_string(),
                         },
-                    },
-                ]);
+                    }],
+                );
             }
         }
         if let Some(rest) = text.strip_prefix("[DOCUMENT:base64:") {
             if let Some((mime, data)) = rest.rsplit_once(':') {
                 let data = data.trim_end_matches(']');
                 let mime = mime.to_string();
-                return Message::tool_result_blocks(call_id, vec![
-                    aegis_types::message::ContentBlock::Document {
+                return Message::tool_result_blocks(
+                    call_id,
+                    vec![aegis_types::message::ContentBlock::Document {
                         source: aegis_types::message::DocumentSource {
                             source_type: "base64".into(),
                             media_type: mime,
                             data: data.to_string(),
                             name: None,
                         },
-                    },
-                ]);
+                    }],
+                );
             }
         }
         Message::tool_result(call_id, text)
@@ -1510,11 +1585,148 @@ impl Agent {
         self.swap_preamble = preamble;
     }
 
+
+    fn maybe_inject_file_mentions(&mut self, input: &str) {
+        if let Some(context) = self.file_mention_context(input) {
+            self.history.push(Message::system(context));
+        }
+    }
+
+    fn file_mention_context(&self, input: &str) -> Option<String> {
+        const MAX_FILES: usize = 5;
+        const MAX_FILE_BYTES: usize = 64 * 1024;
+
+        let cwd = std::env::current_dir().ok()?;
+        let cwd_canon = cwd.canonicalize().unwrap_or_else(|_| cwd.clone());
+        let mut seen = std::collections::HashSet::new();
+        let mut sections = Vec::new();
+
+        for token in Self::extract_file_mentions(input) {
+            if sections.len() >= MAX_FILES {
+                break;
+            }
+            if Self::file_mention_path_is_sensitive(std::path::Path::new(&token)) {
+                continue;
+            }
+
+            let raw_path = if let Some(rest) = token.strip_prefix("~/") {
+                match dirs_next::home_dir() {
+                    Some(home) => home.join(rest),
+                    None => continue,
+                }
+            } else {
+                std::path::PathBuf::from(&token)
+            };
+            let path = if raw_path.is_relative() {
+                cwd.join(raw_path)
+            } else {
+                raw_path
+            };
+            let Ok(canon) = path.canonicalize() else {
+                continue;
+            };
+            if !canon.starts_with(&cwd_canon)
+                || !canon.is_file()
+                || Self::file_mention_path_is_sensitive(&canon)
+                || !seen.insert(canon.clone())
+            {
+                continue;
+            }
+
+            let Ok(meta) = canon.metadata() else {
+                continue;
+            };
+            let Some((text, truncated)) = Self::read_mentioned_text_file(&canon, MAX_FILE_BYTES)
+            else {
+                continue;
+            };
+            if text.trim().is_empty() {
+                continue;
+            }
+            let text = Self::escape_markdown_fence(&text);
+            let truncated_note = if truncated { " · truncated" } else { "" };
+            sections.push(format!(
+                "## @{token}\npath: {}\nsize: {} bytes{truncated_note}\n```text\n{text}\n```",
+                canon.display(),
+                meta.len()
+            ));
+        }
+
+        if sections.is_empty() {
+            None
+        } else {
+            Some(format!(
+                "# File context — @mentions\nThe user mentioned these local text files in the current prompt. Use them as reference for this turn.\n\n{}",
+                sections.join("\n\n")
+            ))
+        }
+    }
+
+    fn extract_file_mentions(input: &str) -> Vec<String> {
+        let re = regex::Regex::new(r"(?:^|[\s\(\[\{<])@([^\s\]\)\}>]+)").unwrap();
+        let mut seen = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        for cap in re.captures_iter(input) {
+            let Some(m) = cap.get(1) else {
+                continue;
+            };
+            let token = m
+                .as_str()
+                .trim_matches(|c| matches!(c, '`' | '"' | '\''))
+                .trim_end_matches(|c| matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | ')' | ']' | '}'));
+            if token.is_empty()
+                || token.contains('@')
+                || token.contains("://")
+                || token.starts_with('#')
+            {
+                continue;
+            }
+            if seen.insert(token.to_string()) {
+                out.push(token.to_string());
+            }
+        }
+        out
+    }
+
+    fn file_mention_path_is_sensitive(path: &std::path::Path) -> bool {
+        path.components().any(|component| {
+            let name = component.as_os_str().to_string_lossy();
+            matches!(
+                name.as_ref(),
+                ".git" | ".env" | ".npmrc" | ".netrc" | ".git-credentials"
+            )
+        })
+    }
+
+    fn read_mentioned_text_file(path: &std::path::Path, max_bytes: usize) -> Option<(String, bool)> {
+        use std::io::Read as _;
+
+        let file = std::fs::File::open(path).ok()?;
+        let mut limited = file.take(max_bytes as u64 + 4);
+        let mut bytes = Vec::new();
+        limited.read_to_end(&mut bytes).ok()?;
+        if bytes.iter().any(|b| *b == 0) {
+            return None;
+        }
+        let truncated = bytes.len() > max_bytes;
+        if truncated {
+            bytes.truncate(max_bytes);
+            while !bytes.is_empty() && std::str::from_utf8(&bytes).is_err() {
+                bytes.pop();
+            }
+        }
+        String::from_utf8(bytes).ok().map(|text| (text, truncated))
+    }
+
+    fn escape_markdown_fence(text: &str) -> String {
+        text.replace("```", "` ` `")
+    }
+
     /// Detect file paths in user input and auto-attach as multimodal blocks.
     /// Returns a plain text Message if no attachable files found, or a
     /// multi-block Message with Image/Document + Text if files are detected.
     fn maybe_attach_files(&self, input: &str) -> Message {
-        use aegis_types::message::{Content, ContentBlock, ImageSource, DocumentSource};
+        use aegis_types::message::{Content, ContentBlock, DocumentSource, ImageSource};
         // Match file paths: Unix (/path, ~/path, ./path), Windows (C:\path),
         // or bare filenames (screenshot.png) — covering Ctrl+V paste from file managers.
         let path_re = regex::Regex::new(
@@ -1546,7 +1758,11 @@ impl Agent {
                 Ok(d) => d,
                 Err(_) => continue,
             };
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
             let b64 = {
                 use base64::Engine;
                 base64::engine::general_purpose::STANDARD.encode(&data)
@@ -1584,7 +1800,9 @@ impl Agent {
         if blocks.is_empty() {
             Message::user(input)
         } else {
-            blocks.push(ContentBlock::Text { text: input.to_string() });
+            blocks.push(ContentBlock::Text {
+                text: input.to_string(),
+            });
             Message {
                 role: aegis_types::message::Role::User,
                 content: Some(Content::Blocks(blocks)),
@@ -1663,17 +1881,15 @@ impl Agent {
             return Vec::new();
         };
         store
-            .list_sessions(limit)
+            .list_sessions(limit.saturating_mul(4).max(limit))
             .unwrap_or_default()
             .into_iter()
+            .filter(|s| s.message_count > 0)
             .map(|s| {
-                (
-                    s.id,
-                    s.title.unwrap_or_else(|| "(untitled)".into()),
-                    s.started_at,
-                    s.message_count,
-                )
+                let title = session_preview_title(store, &s.id, s.title);
+                (s.id, title, s.started_at, s.message_count)
             })
+            .take(limit as usize)
             .collect()
     }
 
@@ -1683,7 +1899,11 @@ impl Agent {
     pub fn past_session_transcript(&self, id_or_prefix: &str) -> Option<String> {
         let store = self.store.as_ref()?;
         // Resolve a prefix to a full id if needed.
-        let id = if store.get_messages(id_or_prefix).map(|m| !m.is_empty()).unwrap_or(false) {
+        let id = if store
+            .get_messages(id_or_prefix)
+            .map(|m| !m.is_empty())
+            .unwrap_or(false)
+        {
             id_or_prefix.to_string()
         } else {
             store
@@ -1803,9 +2023,10 @@ impl Agent {
                     .push(Message::system(format!("[hook context]\n{c}")));
             }
         }
-        // ── Seamless file attachment: detect file paths in user input ──
-        // If the message contains a path to an image/PDF that exists on disk,
-        // automatically attach it as a multimodal content block alongside the text.
+        // ── File mentions and seamless attachments ──
+        // `@path` injects bounded text/code context for this turn. Image/PDF
+        // paths still use the multimodal auto-attachment path below.
+        self.maybe_inject_file_mentions(user_input);
         let user_msg = self.maybe_attach_files(user_input);
         self.history.push(user_msg);
         self.record("user", Some(user_input), None, RecordType::Message)?;
@@ -1840,12 +2061,22 @@ impl Agent {
             if let Some(backend) = &self.memory {
                 let recall_limit = self.config.memory.recall_limit;
                 // Build session context from recent turns for context-aware recall
-                let session_context: String = self.history.iter().rev().take(10)
-                    .filter(|m| m.role == aegis_types::message::Role::User || m.role == aegis_types::message::Role::Assistant)
+                let session_context: String = self
+                    .history
+                    .iter()
+                    .rev()
+                    .take(10)
+                    .filter(|m| {
+                        m.role == aegis_types::message::Role::User
+                            || m.role == aegis_types::message::Role::Assistant
+                    })
                     .map(|m| m.text())
                     .collect::<Vec<_>>()
                     .join(" ");
-                match backend.search_with_context(user_input, &session_context, recall_limit).await {
+                match backend
+                    .search_with_context(user_input, &session_context, recall_limit)
+                    .await
+                {
                     Ok(items) if !items.is_empty() => {
                         // ── Gate 1: confidence floor (decay-aware, from backend) ──
                         let min_conf = self.config.memory.min_confidence;
@@ -1900,7 +2131,11 @@ impl Agent {
                                     // only a short trigger + id (full body via
                                     // memory_search), to save prompt tokens.
                                     let body = if ee && e.content.len() > 80 {
-                                        format!("{} … (memory_search id={} for full)", memory_trigger(&e.content), e.id)
+                                        format!(
+                                            "{} … (memory_search id={} for full)",
+                                            memory_trigger(&e.content),
+                                            e.id
+                                        )
                                     } else {
                                         e.content.clone()
                                     };
@@ -1966,7 +2201,9 @@ impl Agent {
             let token_limit = self.config.model.daily_token_limit;
             if token_limit > 0 {
                 if let Some(store) = &self.store {
-                    let from = chrono::Utc::now().format("%Y-%m-%dT00:00:00+00:00").to_string();
+                    let from = chrono::Utc::now()
+                        .format("%Y-%m-%dT00:00:00+00:00")
+                        .to_string();
                     if let Ok(row) = store.usage_total(Some(&from), None) {
                         if row.input + row.output >= token_limit {
                             break format!(
@@ -2011,7 +2248,10 @@ impl Agent {
             self.track_tokens(&resp);
 
             if resp.message.has_tool_calls() {
-                let calls = resp.message.tool_calls.as_ref()
+                let calls = resp
+                    .message
+                    .tool_calls
+                    .as_ref()
                     .expect("has_tool_calls() returned true, so tool_calls must be Some")
                     .clone();
                 // No-progress circuit breaker: if the identical batch of tool
@@ -2102,10 +2342,8 @@ impl Agent {
                 tracing::debug!("empty response, retry {empty_retries}/{MAX_EMPTY_RETRIES}");
                 // Back off briefly so a transient empty doesn't hammer the
                 // provider in a tight loop.
-                tokio::time::sleep(std::time::Duration::from_millis(
-                    250 * empty_retries as u64,
-                ))
-                .await;
+                tokio::time::sleep(std::time::Duration::from_millis(250 * empty_retries as u64))
+                    .await;
                 // Nudge the model once so the retried request differs from the
                 // one that produced nothing (retrying an identical request
                 // usually yields another empty reply).
@@ -2138,7 +2376,13 @@ impl Agent {
             let runner = crate::hooks::HookRunner::new(&self.config.hooks);
             let cwd = std::env::current_dir().unwrap_or_default();
             let _ = runner
-                .fire(crate::hooks::HookEvent::Stop, None, None, &self.session_id, &cwd)
+                .fire(
+                    crate::hooks::HookEvent::Stop,
+                    None,
+                    None,
+                    &self.session_id,
+                    &cwd,
+                )
                 .await;
         }
 
@@ -2239,8 +2483,8 @@ impl Agent {
                         Some(t) => t.clone(),
                         None => return Err(anyhow::anyhow!("Unknown tool '{name}'")),
                     };
-                    let args: serde_json::Value = serde_json::from_str(&arguments)
-                        .unwrap_or(serde_json::Value::Null);
+                    let args: serde_json::Value =
+                        serde_json::from_str(&arguments).unwrap_or(serde_json::Value::Null);
                     let approve: Box<dyn Fn(&str) -> bool + Send + Sync> = Box::new(|_| true);
                     let ctx = aegis_tools::ToolContext {
                         cwd: wd,
@@ -2268,11 +2512,15 @@ impl Agent {
                 };
                 let text = self.maybe_execute_control_cmd(&text);
                 let mut text = text;
-                self.maybe_append_diagnostics(&tc.name, &tc.arguments, &mut text).await;
-                self.maybe_fire_post_tool_use(&tc.name, &tc.arguments, &mut text).await;
+                self.maybe_append_diagnostics(&tc.name, &tc.arguments, &mut text)
+                    .await;
+                self.maybe_fire_post_tool_use(&tc.name, &tc.arguments, &mut text)
+                    .await;
+                self.maybe_audit_terminal_receipt(&tc.name, &text);
                 self.plugin_registry.fire_tool_result(&tc.name, &text);
                 self.callbacks.on_tool_complete(&tc.name, &text, ok);
-                self.history.push(self.make_tool_result_message(&tc.id, &text));
+                self.history
+                    .push(self.make_tool_result_message(&tc.id, &text));
                 self.record("tool", Some(&text), None, RecordType::ToolResult)?;
             }
         } else {
@@ -2292,11 +2540,15 @@ impl Agent {
                 };
                 let text = self.maybe_execute_control_cmd(&text);
                 let mut text = text;
-                self.maybe_append_diagnostics(&tc.name, &tc.arguments, &mut text).await;
-                self.maybe_fire_post_tool_use(&tc.name, &tc.arguments, &mut text).await;
+                self.maybe_append_diagnostics(&tc.name, &tc.arguments, &mut text)
+                    .await;
+                self.maybe_fire_post_tool_use(&tc.name, &tc.arguments, &mut text)
+                    .await;
+                self.maybe_audit_terminal_receipt(&tc.name, &text);
                 self.plugin_registry.fire_tool_result(&tc.name, &text);
                 self.callbacks.on_tool_complete(&tc.name, &text, ok);
-                self.history.push(self.make_tool_result_message(&tc.id, &text));
+                self.history
+                    .push(self.make_tool_result_message(&tc.id, &text));
                 self.record("tool", Some(&text), None, RecordType::ToolResult)?;
             }
         }
@@ -2360,7 +2612,10 @@ impl Agent {
             let questions = parse_clarify_questions(&args);
             let answers = self.callbacks.on_clarify(&questions);
             let result = if questions.len() <= 1 {
-                format!("User answered: {}", answers.first().cloned().unwrap_or_default())
+                format!(
+                    "User answered: {}",
+                    answers.first().cloned().unwrap_or_default()
+                )
             } else {
                 questions
                     .iter()
@@ -2389,8 +2644,11 @@ impl Agent {
             {
                 crate::hooks::HookOutcome::Deny(reason) => {
                     let msg = format!("⛔ Blocked by hook ({name}): {reason}");
-                    self.audit
-                        .log_action(&self.session_id, &format!("hook-deny:{name}"), &tc.arguments);
+                    self.audit.log_action(
+                        &self.session_id,
+                        &format!("hook-deny:{name}"),
+                        &tc.arguments,
+                    );
                     self.callbacks.on_status(&msg);
                     return Ok(msg);
                 }
@@ -2417,16 +2675,16 @@ impl Agent {
         let pre_approved = match self.permission_gate(&name, &args) {
             PermGate::Deny(why) => {
                 let msg = format!("⛔ Blocked by permission policy ({name}): {why}");
-                self.audit.log_action(&self.session_id, &format!("denied:{name}"), &tc.arguments);
+                self.audit
+                    .log_action(&self.session_id, &format!("denied:{name}"), &tc.arguments);
                 self.callbacks.on_status(&msg);
                 return Ok(msg);
             }
             PermGate::Ask => {
                 let preview = &tc.arguments[..tc.arguments.floor_char_boundary(200)];
-                if !self
-                    .callbacks
-                    .on_approve(&format!("Permission policy — allow `{name}`?\nargs: {preview}"))
-                {
+                if !self.callbacks.on_approve(&format!(
+                    "Permission policy — allow `{name}`?\nargs: {preview}"
+                )) {
                     return Ok(format!("Denied by user (permission policy): {name}"));
                 }
                 true
@@ -2446,7 +2704,11 @@ impl Agent {
                 ));
                 if !ok {
                     let msg = format!("Denied (dangerous command not confirmed): {name}");
-                    self.audit.log_action(&self.session_id, &format!("denied-dangerous:{name}"), &tc.arguments);
+                    self.audit.log_action(
+                        &self.session_id,
+                        &format!("denied-dangerous:{name}"),
+                        &tc.arguments,
+                    );
                     self.callbacks.on_status(&msg);
                     return Ok(msg);
                 }
@@ -2489,7 +2751,8 @@ impl Agent {
             name.as_str(),
             "terminal" | "remote" | "write_file" | "patch" | "background" | "spawn_task"
         ) {
-            self.audit.log_tool(&self.session_id, &name, &tc.arguments, pre_approved);
+            self.audit
+                .log_tool(&self.session_id, &name, &tc.arguments, pre_approved);
         }
 
         tokio::select! {
@@ -2507,7 +2770,8 @@ impl Agent {
         if !self.config.hooks.enabled {
             return;
         }
-        let args: serde_json::Value = serde_json::from_str(args_str).unwrap_or(serde_json::Value::Null);
+        let args: serde_json::Value =
+            serde_json::from_str(args_str).unwrap_or(serde_json::Value::Null);
         let runner = crate::hooks::HookRunner::new(&self.config.hooks);
         let cwd = std::env::current_dir().unwrap_or_default();
         if let crate::hooks::HookOutcome::Context(c) = runner
@@ -2547,7 +2811,11 @@ impl Agent {
         };
         let cwd = std::env::current_dir().unwrap_or_default();
         let p = std::path::Path::new(&path);
-        let abs = if p.is_absolute() { p.to_path_buf() } else { cwd.join(p) };
+        let abs = if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            cwd.join(p)
+        };
         if !mgr.handles(&abs) {
             return;
         }
@@ -2590,13 +2858,22 @@ impl Agent {
         if matched.is_empty() {
             return PermGate::Pass;
         }
-        if matched.iter().any(|r| r.action == aegis_security::RuleAction::Deny) {
+        if matched
+            .iter()
+            .any(|r| r.action == aegis_security::RuleAction::Deny)
+        {
             return PermGate::Deny("matched a deny rule".into());
         }
-        if matched.iter().any(|r| r.action == aegis_security::RuleAction::Ask) {
+        if matched
+            .iter()
+            .any(|r| r.action == aegis_security::RuleAction::Ask)
+        {
             return PermGate::Ask;
         }
-        if matched.iter().any(|r| r.action == aegis_security::RuleAction::Allow) {
+        if matched
+            .iter()
+            .any(|r| r.action == aegis_security::RuleAction::Allow)
+        {
             return PermGate::Allow;
         }
         PermGate::Pass
@@ -2635,9 +2912,12 @@ impl Agent {
         let budget = self.context_window.available_tokens();
         // Lifecycle-aware eviction: fold completed tool sequences before compaction
         self.history = crate::compression::fold_completed_tool_sequences(&self.history, 3);
-        let action =
-            self.compactor
-                .check_and_compact(&mut self.history, &mut self.summary, used_tokens, budget);
+        let action = self.compactor.check_and_compact(
+            &mut self.history,
+            &mut self.summary,
+            used_tokens,
+            budget,
+        );
         match &action {
             crate::compression::CompactionAction::None => {}
             crate::compression::CompactionAction::SoftCompacted { trigger, .. } => {
@@ -2663,7 +2943,11 @@ impl Agent {
     /// actually apply would make self-knowledge lie — so those land together
     /// with the identity plumbing.
     fn runtime_self_context(&self) -> String {
-        render_runtime_context(&self.config.model, self.memory.is_some(), self.memory_offline)
+        render_runtime_context(
+            &self.config.model,
+            self.memory.is_some(),
+            self.memory_offline,
+        )
     }
 
     async fn generate_title(&self, user_input: &str, assistant_reply: &str) {
@@ -2682,7 +2966,8 @@ impl Agent {
                 let title = title.trim().trim_matches('"');
                 if !title.is_empty() {
                     if let Some(store) = &self.store {
-                        let _ = store.set_title(&self.session_id, &title[..title.floor_char_boundary(50)]);
+                        let _ = store
+                            .set_title(&self.session_id, &title[..title.floor_char_boundary(50)]);
                     }
                 }
             }
@@ -2846,11 +3131,8 @@ impl Agent {
                 let _ = store.update_tokens(&self.session_id, u.input_tokens, u.output_tokens);
                 // Append to the usage history ledger (per-call, timestamped) with
                 // the cost frozen at call time for accurate time-period queries.
-                let cost = estimate_cost(
-                    &self.config.model.default,
-                    u.input_tokens,
-                    u.output_tokens,
-                );
+                let cost =
+                    estimate_cost(&self.config.model.default, u.input_tokens, u.output_tokens);
                 let _ = store.record_usage(
                     &self.session_id,
                     &self.config.model.default,
@@ -2859,6 +3141,19 @@ impl Agent {
                     cost,
                 );
             }
+        }
+    }
+
+    fn maybe_audit_terminal_receipt(&self, tool_name: &str, text: &str) {
+        if tool_name != "terminal" {
+            return;
+        }
+        if let Some(path) = aegis_tools::output_buffer::receipt_full_output_path(text) {
+            self.audit.log_action(
+                &self.session_id,
+                "tool-output:terminal",
+                &path.display().to_string(),
+            );
         }
     }
 
@@ -3053,7 +3348,6 @@ impl Agent {
         }
     }
 
-
     fn check_goal_suggestion(&mut self, user_input: &str) {
         const STOP_WORDS: &[&str] = &[
             "the", "this", "that", "with", "have", "from", "they", "will", "been", "what", "when",
@@ -3136,7 +3430,9 @@ impl Agent {
 
     /// Drain low-priority events (call when idle, e.g. after stdin is empty).
     pub async fn drain_low_priority_events(&mut self) -> Result<()> {
-        let Some(rx) = self.event_rx.as_mut() else { return Ok(()) };
+        let Some(rx) = self.event_rx.as_mut() else {
+            return Ok(());
+        };
         let mut pending = Vec::new();
         while let Ok(event) = rx.try_recv() {
             pending.push(event.payload.to_string());
@@ -3167,7 +3463,10 @@ impl Agent {
                 }
             }
             if let Err(e) = backend.commit_session(&self.session_id).await {
-                warn!("memory backend '{}' commit_session failed: {e}", backend.name());
+                warn!(
+                    "memory backend '{}' commit_session failed: {e}",
+                    backend.name()
+                );
             }
         }
         Ok(())
@@ -3241,7 +3540,9 @@ impl Agent {
              Conversation:\n{transcript}"
         );
         let req = vec![
-            Message::system("You distil durable memories from a conversation. Output strict JSON only."),
+            Message::system(
+                "You distil durable memories from a conversation. Output strict JSON only.",
+            ),
             Message::user(instruction),
         ];
         let to_secs = match self.config.memory.extraction_timeout_secs {
@@ -3326,7 +3627,9 @@ impl Agent {
             return Ok(String::new());
         }
 
-        let all_msgs = self.store.as_ref()
+        let all_msgs = self
+            .store
+            .as_ref()
             .expect("store checked for Some above")
             .get_messages(&self.session_id)?;
         let n = self.reflect_every as usize;
@@ -3354,9 +3657,12 @@ impl Agent {
         let result = resp.message.text();
 
         let key = format!("reflection/{}", chrono::Utc::now().format("%Y%m%dT%H%M%S"));
-        let _ = self.memory.as_ref()
+        let _ = self
+            .memory
+            .as_ref()
             .expect("memory checked for Some above")
-            .remember(&key, &result).await;
+            .remember(&key, &result)
+            .await;
         self.last_reflection = Some(chrono::Utc::now());
 
         Ok(result)
@@ -3409,7 +3715,10 @@ impl Agent {
                     None => "permanent".to_string(),
                     Some(n) => format!("{n} turns"),
                 };
-                format!("Steering instruction added [{:.8}] ({dur_desc}): {instruction}", id)
+                format!(
+                    "Steering instruction added [{:.8}] ({dur_desc}): {instruction}",
+                    id
+                )
             } else {
                 text.to_string()
             }
@@ -3592,7 +3901,7 @@ mod tests {
         assert!(prompt.contains("cargo install aegis-agent"));
         assert!(prompt.contains("install.sh"));
         assert!(prompt.contains("aegis-linux-")); // prebuilt asset name
-        // Must disambiguate from the underlying model/vendor.
+                                                  // Must disambiguate from the underlying model/vendor.
         assert!(prompt.to_lowercase().contains("not the underlying"));
     }
 
@@ -3651,7 +3960,17 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_with_soul() {
-        let prompt = build_system_prompt("identity", Some("soul text"), None, None, &[], None, None, None, None);
+        let prompt = build_system_prompt(
+            "identity",
+            Some("soul text"),
+            None,
+            None,
+            &[],
+            None,
+            None,
+            None,
+            None,
+        );
         assert!(prompt.contains("soul text"));
     }
 
@@ -3702,13 +4021,33 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_with_goals() {
-        let prompt = build_system_prompt("id", None, None, None, &[], Some("goals ctx"), None, None, None);
+        let prompt = build_system_prompt(
+            "id",
+            None,
+            None,
+            None,
+            &[],
+            Some("goals ctx"),
+            None,
+            None,
+            None,
+        );
         assert!(prompt.contains("goals ctx"));
     }
 
     #[test]
     fn test_build_system_prompt_with_memories() {
-        let prompt = build_system_prompt("id", None, None, None, &[], None, Some("mem content"), None, None);
+        let prompt = build_system_prompt(
+            "id",
+            None,
+            None,
+            None,
+            &[],
+            None,
+            Some("mem content"),
+            None,
+            None,
+        );
         assert!(prompt.contains("mem content"));
     }
 
@@ -3716,10 +4055,7 @@ mod tests {
 
     #[test]
     fn test_clean_messages_no_orphans() {
-        let mut msgs = vec![
-            Message::user("hello"),
-            Message::assistant("hi"),
-        ];
+        let mut msgs = vec![Message::user("hello"), Message::assistant("hi")];
         clean_messages(&mut msgs);
         assert_eq!(msgs.len(), 2);
     }
@@ -3767,16 +4103,29 @@ mod tests {
     fn test_resolve_tool_name_unknown() {
         let mut reg = ToolRegistry::new();
         reg.register(Arc::new(DummyTool("read_file")));
-        assert_eq!(resolve_tool_name("completely_different", &reg), "completely_different");
+        assert_eq!(
+            resolve_tool_name("completely_different", &reg),
+            "completely_different"
+        );
     }
 
     struct DummyTool(&'static str);
     #[async_trait::async_trait]
     impl aegis_tools::Tool for DummyTool {
-        fn name(&self) -> &str { self.0 }
-        fn description(&self) -> &str { "dummy" }
-        fn parameters(&self) -> serde_json::Value { serde_json::json!({}) }
-        async fn execute(&self, _args: serde_json::Value, _ctx: &aegis_tools::ToolContext<'_>) -> anyhow::Result<String> {
+        fn name(&self) -> &str {
+            self.0
+        }
+        fn description(&self) -> &str {
+            "dummy"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+        async fn execute(
+            &self,
+            _args: serde_json::Value,
+            _ctx: &aegis_tools::ToolContext<'_>,
+        ) -> anyhow::Result<String> {
             Ok("ok".into())
         }
     }

@@ -103,16 +103,20 @@ pub fn build_session_key(source: &SessionSource, isolation: SessionIsolation) ->
     match isolation {
         SessionIsolation::PerUser => format!(
             "{}:{}:{}:{}",
-            source.platform, source.chat_id, source.user_id,
-            match source.chat_type { ChatType::Private => "private", ChatType::Group => "group", ChatType::Channel => "channel" }
+            source.platform,
+            source.chat_id,
+            source.user_id,
+            match source.chat_type {
+                ChatType::Private => "private",
+                ChatType::Group => "group",
+                ChatType::Channel => "channel",
+            }
         ),
-        SessionIsolation::Shared => format!(
-            "{}:{}",
-            source.platform, source.chat_id
-        ),
+        SessionIsolation::Shared => format!("{}:{}", source.platform, source.chat_id),
         SessionIsolation::PerThread => format!(
             "{}:{}:{}",
-            source.platform, source.chat_id,
+            source.platform,
+            source.chat_id,
             source.thread_id.as_deref().unwrap_or("main")
         ),
     }
@@ -453,8 +457,14 @@ mod tests {
     #[test]
     fn test_file_intervention_watcher_new() {
         let watcher = FileInterventionWatcher::new("/tmp/intervene.txt", "/tmp/keyinfo.txt");
-        assert_eq!(watcher.intervene_path, std::path::PathBuf::from("/tmp/intervene.txt"));
-        assert_eq!(watcher.keyinfo_path, std::path::PathBuf::from("/tmp/keyinfo.txt"));
+        assert_eq!(
+            watcher.intervene_path,
+            std::path::PathBuf::from("/tmp/intervene.txt")
+        );
+        assert_eq!(
+            watcher.keyinfo_path,
+            std::path::PathBuf::from("/tmp/keyinfo.txt")
+        );
     }
 
     #[tokio::test]

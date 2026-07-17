@@ -43,10 +43,7 @@ impl McpHttpClient {
 
         // List tools
         let tools_resp = self.rpc("tools/list", json!({})).await?;
-        let tools = tools_resp["tools"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
+        let tools = tools_resp["tools"].as_array().cloned().unwrap_or_default();
 
         let client = Arc::new(self.clone());
         let proxies: Vec<McpHttpToolProxy> = tools

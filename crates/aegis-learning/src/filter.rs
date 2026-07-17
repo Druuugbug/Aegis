@@ -206,13 +206,28 @@ pub const SENSITIVE_PATTERNS: &[(&str, &str)] = &[
     ("ANTHROPIC_KEY", r"\bsk-ant-[A-Za-z0-9_-]{20,}\b"),
     ("GOOGLE_KEY", r"\bAIza[0-9A-Za-z_-]{35}\b"),
     ("SLACK_TOKEN", r"\bxox[bpars]-[A-Za-z0-9-]{10,}\b"),
-    ("PRIVATE_KEY", r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"),
-    ("SSH_PATH", r"(?:\.ssh/|\.aws/|\.gnupg/)(?:[A-Za-z0-9_.-]+)?"),
-    ("EMAIL", r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
-    ("PHONE", r"\+?\d{1,3}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{4}\b"),
+    (
+        "PRIVATE_KEY",
+        r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----",
+    ),
+    (
+        "SSH_PATH",
+        r"(?:\.ssh/|\.aws/|\.gnupg/)(?:[A-Za-z0-9_.-]+)?",
+    ),
+    (
+        "EMAIL",
+        r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",
+    ),
+    (
+        "PHONE",
+        r"\+?\d{1,3}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{4}\b",
+    ),
     ("CN_ID", r"\b\d{17}[\dXx]\b"),
     ("BEARER", r"(?i)bearer\s+[A-Za-z0-9._~+/=-]{16,}"),
-    ("URL_CREDS", r"[A-Za-z][A-Za-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@[^\s]+"),
+    (
+        "URL_CREDS",
+        r"[A-Za-z][A-Za-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@[^\s]+",
+    ),
 ];
 
 /// Reusable filter. Construction is cheap-ish (compiles ~14 regexes) so
@@ -231,7 +246,9 @@ impl Default for SensitiveFilter {
 impl SensitiveFilter {
     /// Build a filter with the canonical pattern set.
     pub fn new() -> Self {
-        Self { patterns: default_patterns() }
+        Self {
+            patterns: default_patterns(),
+        }
     }
 
     /// Build a filter with a custom set of patterns (for tests).
@@ -269,7 +286,10 @@ impl SensitiveFilter {
             let placeholder = format!("[REDACTED:{}]", p.kind);
             // Re-create the regex per replacement is fine — Regex::replace_all
             // owns the inner state. The owning struct's life is per call.
-            result = p.regex.replace_all(&result, placeholder.as_str()).into_owned();
+            result = p
+                .regex
+                .replace_all(&result, placeholder.as_str())
+                .into_owned();
         }
         result
     }
@@ -298,7 +318,10 @@ mod tests {
         let f = filter();
         let input = "key is AKIAIOSFODNN7EXAMPLE here";
         let out = f.redact(input);
-        assert!(!out.contains("AKIAIOSFODNN7EXAMPLE"), "AWS key should be redacted: {out}");
+        assert!(
+            !out.contains("AKIAIOSFODNN7EXAMPLE"),
+            "AWS key should be redacted: {out}"
+        );
         assert!(out.contains("[REDACTED:AWS_KEY]"));
     }
 
@@ -448,7 +471,13 @@ mod tests {
         let kinds = f.matched_kinds("AKIAIOSFODNN7EXAMPLE alice@example.com");
         assert!(kinds.contains(&RedactionKind::AwsKey));
         assert!(kinds.contains(&RedactionKind::Email));
-        assert_eq!(kinds.iter().filter(|k| **k == RedactionKind::AwsKey).count(), 1);
+        assert_eq!(
+            kinds
+                .iter()
+                .filter(|k| **k == RedactionKind::AwsKey)
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -494,7 +523,11 @@ mod tests {
     #[test]
     fn test_default_patterns_count() {
         let p = default_patterns();
-        assert!(p.len() >= 10, "expected at least 10 default patterns, got {}", p.len());
+        assert!(
+            p.len() >= 10,
+            "expected at least 10 default patterns, got {}",
+            p.len()
+        );
     }
 
     #[test]
@@ -543,7 +576,10 @@ mod tests {
     fn test_aws_secret_regex_requires_40_chars() {
         let f = filter();
         // 39 chars — should not match
-        assert_eq!(f.redact("shortABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789X"), "shortABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789X");
+        assert_eq!(
+            f.redact("shortABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789X"),
+            "shortABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789X"
+        );
     }
 
     #[test]

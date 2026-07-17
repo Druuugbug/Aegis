@@ -28,9 +28,7 @@ pub enum EventKind {
         tier: TierLevel,
     },
     /// A key was deleted.
-    Delete {
-        key: Vec<u8>,
-    },
+    Delete { key: Vec<u8> },
     /// A key was accessed (read).
     Access {
         key: Vec<u8>,
@@ -38,14 +36,9 @@ pub enum EventKind {
         hit: bool,
     },
     /// An entry was drained from hot to cold tier.
-    Drain {
-        count: usize,
-        bytes: u64,
-    },
+    Drain { count: usize, bytes: u64 },
     /// An entry was promoted from cold to hot tier.
-    Promote {
-        key: Vec<u8>,
-    },
+    Promote { key: Vec<u8> },
     /// A compaction was performed.
     Compact {
         runs_merged: usize,
@@ -63,10 +56,7 @@ pub enum EventKind {
         bytes_reclaimed: u64,
     },
     /// An error occurred.
-    Error {
-        operation: String,
-        message: String,
-    },
+    Error { operation: String, message: String },
 }
 
 impl StorageEvent {
@@ -127,13 +117,25 @@ impl fmt::Display for EventKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             EventKind::Put { key, size, tier } => {
-                write!(f, "PUT {} bytes={} tier={}", String::from_utf8_lossy(key), size, tier)
+                write!(
+                    f,
+                    "PUT {} bytes={} tier={}",
+                    String::from_utf8_lossy(key),
+                    size,
+                    tier
+                )
             }
             EventKind::Delete { key } => {
                 write!(f, "DELETE {}", String::from_utf8_lossy(key))
             }
             EventKind::Access { key, tier, hit } => {
-                write!(f, "GET {} tier={} hit={}", String::from_utf8_lossy(key), tier, hit)
+                write!(
+                    f,
+                    "GET {} tier={} hit={}",
+                    String::from_utf8_lossy(key),
+                    tier,
+                    hit
+                )
             }
             EventKind::Drain { count, bytes } => {
                 write!(f, "DRAIN count={} bytes={}", count, bytes)
@@ -164,10 +166,7 @@ impl fmt::Display for EventKind {
             } => {
                 write!(f, "CLEANUP expired={} bytes={}", expired, bytes_reclaimed)
             }
-            EventKind::Error {
-                operation,
-                message,
-            } => {
+            EventKind::Error { operation, message } => {
                 write!(f, "ERROR {}: {}", operation, message)
             }
         }

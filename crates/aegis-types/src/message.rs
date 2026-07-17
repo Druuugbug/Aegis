@@ -31,23 +31,41 @@ pub struct MediaType(pub String);
 
 impl MediaType {
     /// Png.
-    pub fn png() -> Self { Self("image/png".into()) }
+    pub fn png() -> Self {
+        Self("image/png".into())
+    }
     /// Jpeg.
-    pub fn jpeg() -> Self { Self("image/jpeg".into()) }
+    pub fn jpeg() -> Self {
+        Self("image/jpeg".into())
+    }
     /// Gif.
-    pub fn gif() -> Self { Self("image/gif".into()) }
+    pub fn gif() -> Self {
+        Self("image/gif".into())
+    }
     /// Webp.
-    pub fn webp() -> Self { Self("image/webp".into()) }
+    pub fn webp() -> Self {
+        Self("image/webp".into())
+    }
     /// Pdf.
-    pub fn pdf() -> Self { Self("application/pdf".into()) }
+    pub fn pdf() -> Self {
+        Self("application/pdf".into())
+    }
     /// Mp3.
-    pub fn mp3() -> Self { Self("audio/mpeg".into()) }
+    pub fn mp3() -> Self {
+        Self("audio/mpeg".into())
+    }
     /// Wav.
-    pub fn wav() -> Self { Self("audio/wav".into()) }
+    pub fn wav() -> Self {
+        Self("audio/wav".into())
+    }
     /// Mp4.
-    pub fn mp4() -> Self { Self("video/mp4".into()) }
+    pub fn mp4() -> Self {
+        Self("video/mp4".into())
+    }
     /// Webm.
-    pub fn webm() -> Self { Self("video/webm".into()) }
+    pub fn webm() -> Self {
+        Self("video/webm".into())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -197,9 +215,14 @@ impl Content {
     pub fn has_multimodal(&self) -> bool {
         match self {
             Self::Text(_) => false,
-            Self::Blocks(blocks) => blocks.iter().any(|b| !matches!(b,
-                ContentBlock::Text { .. } | ContentBlock::ToolUse { .. } | ContentBlock::ToolResult { .. }
-            )),
+            Self::Blocks(blocks) => blocks.iter().any(|b| {
+                !matches!(
+                    b,
+                    ContentBlock::Text { .. }
+                        | ContentBlock::ToolUse { .. }
+                        | ContentBlock::ToolResult { .. }
+                )
+            }),
         }
     }
 }
@@ -277,13 +300,11 @@ impl Message {
     pub fn tool_result(call_id: impl Into<String>, content: impl Into<String>) -> Self {
         Self {
             role: Role::Tool,
-            content: Some(Content::Blocks(vec![
-                ContentBlock::ToolResult {
-                    tool_use_id: call_id.into(),
-                    content: ToolResultContent::Text(content.into()),
-                    is_error: None,
-                }
-            ])),
+            content: Some(Content::Blocks(vec![ContentBlock::ToolResult {
+                tool_use_id: call_id.into(),
+                content: ToolResultContent::Text(content.into()),
+                is_error: None,
+            }])),
             tool_calls: None,
             tool_call_id: None,
             name: None,
@@ -295,13 +316,11 @@ impl Message {
     pub fn tool_result_blocks(call_id: impl Into<String>, blocks: Vec<ContentBlock>) -> Self {
         Self {
             role: Role::Tool,
-            content: Some(Content::Blocks(vec![
-                ContentBlock::ToolResult {
-                    tool_use_id: call_id.into(),
-                    content: ToolResultContent::Blocks(blocks),
-                    is_error: None,
-                }
-            ])),
+            content: Some(Content::Blocks(vec![ContentBlock::ToolResult {
+                tool_use_id: call_id.into(),
+                content: ToolResultContent::Blocks(blocks),
+                is_error: None,
+            }])),
             tool_calls: None,
             tool_call_id: None,
             name: None,
@@ -411,7 +430,9 @@ mod tests {
         assert!(!m.has_tool_calls());
 
         let m = Message::assistant_tool_calls(vec![ToolCall {
-            id: "1".into(), name: "test".into(), arguments: "{}".into(),
+            id: "1".into(),
+            name: "test".into(),
+            arguments: "{}".into(),
         }]);
         assert!(m.has_tool_calls());
     }
@@ -419,8 +440,12 @@ mod tests {
     #[test]
     fn test_content_text_from_blocks() {
         let c = Content::Blocks(vec![
-            ContentBlock::Text { text: "hello ".into() },
-            ContentBlock::Text { text: "world".into() },
+            ContentBlock::Text {
+                text: "hello ".into(),
+            },
+            ContentBlock::Text {
+                text: "world".into(),
+            },
         ]);
         assert_eq!(c.text(), "hello world");
     }
@@ -442,15 +467,26 @@ mod tests {
 
     #[test]
     fn test_empty_message_text() {
-        let m = Message { role: Role::Assistant, content: None, tool_calls: None, tool_call_id: None, name: None, reasoning: None };
+        let m = Message {
+            role: Role::Assistant,
+            content: None,
+            tool_calls: None,
+            tool_call_id: None,
+            name: None,
+            reasoning: None,
+        };
         assert_eq!(m.text(), "");
     }
 
     #[test]
     fn test_thinking_block() {
         let c = Content::Blocks(vec![
-            ContentBlock::Thinking { thinking: "reasoning...".into() },
-            ContentBlock::Text { text: "answer".into() },
+            ContentBlock::Thinking {
+                thinking: "reasoning...".into(),
+            },
+            ContentBlock::Text {
+                text: "answer".into(),
+            },
         ]);
         assert_eq!(c.text(), "reasoning...answer");
     }
@@ -461,12 +497,16 @@ mod tests {
         assert_eq!(plain.text(), "hello");
 
         let multi = ToolResultContent::Blocks(vec![
-            ContentBlock::Text { text: "see ".into() },
-            ContentBlock::Image { source: ImageSource {
-                source_type: "base64".into(),
-                media_type: "image/png".into(),
-                data: "abc123".into(),
-            }},
+            ContentBlock::Text {
+                text: "see ".into(),
+            },
+            ContentBlock::Image {
+                source: ImageSource {
+                    source_type: "base64".into(),
+                    media_type: "image/png".into(),
+                    data: "abc123".into(),
+                },
+            },
         ]);
         // Only text should be extracted
         assert_eq!(multi.text(), "see ");
@@ -474,32 +514,36 @@ mod tests {
 
     #[test]
     fn test_content_multimodal_detection() {
-        let text_only = Content::Blocks(vec![
-            ContentBlock::Text { text: "hello".into() },
-        ]);
+        let text_only = Content::Blocks(vec![ContentBlock::Text {
+            text: "hello".into(),
+        }]);
         assert!(!text_only.has_multimodal());
 
         let with_image = Content::Blocks(vec![
-            ContentBlock::Text { text: "look: ".into() },
-            ContentBlock::Image { source: ImageSource {
-                source_type: "base64".into(),
-                media_type: "image/png".into(),
-                data: "abc".into(),
-            }},
+            ContentBlock::Text {
+                text: "look: ".into(),
+            },
+            ContentBlock::Image {
+                source: ImageSource {
+                    source_type: "base64".into(),
+                    media_type: "image/png".into(),
+                    data: "abc".into(),
+                },
+            },
         ]);
         assert!(with_image.has_multimodal());
     }
 
     #[test]
     fn test_document_block() {
-        let c = Content::Blocks(vec![
-            ContentBlock::Document { source: DocumentSource {
+        let c = Content::Blocks(vec![ContentBlock::Document {
+            source: DocumentSource {
                 source_type: "base64".into(),
                 media_type: "application/pdf".into(),
                 data: "pdfdata".into(),
                 name: Some("report.pdf".into()),
-            }},
-        ]);
+            },
+        }]);
         assert!(c.has_multimodal()); // Document is multimodal
     }
 
@@ -546,13 +590,11 @@ mod tests {
 
     #[test]
     fn test_message_assistant_tool_calls() {
-        let calls = vec![
-            ToolCall {
-                id: "call_1".into(),
-                name: "terminal".into(),
-                arguments: r#"{"command":"ls"}"#.into(),
-            },
-        ];
+        let calls = vec![ToolCall {
+            id: "call_1".into(),
+            name: "terminal".into(),
+            arguments: r#"{"command":"ls"}"#.into(),
+        }];
         let m = Message::assistant_tool_calls(calls);
         assert_eq!(m.role, Role::Assistant);
         assert!(m.content.is_none());
@@ -573,25 +615,25 @@ mod tests {
 
     #[test]
     fn test_content_has_multimodal_audio() {
-        let c = Content::Blocks(vec![
-            ContentBlock::Audio { source: AudioSource {
+        let c = Content::Blocks(vec![ContentBlock::Audio {
+            source: AudioSource {
                 source_type: "base64".into(),
                 media_type: "audio/mp3".into(),
                 data: "audiodata".into(),
-            }},
-        ]);
+            },
+        }]);
         assert!(c.has_multimodal());
     }
 
     #[test]
     fn test_content_has_multimodal_video() {
-        let c = Content::Blocks(vec![
-            ContentBlock::Video { source: VideoSource {
+        let c = Content::Blocks(vec![ContentBlock::Video {
+            source: VideoSource {
                 source_type: "base64".into(),
                 media_type: "video/mp4".into(),
                 data: "videodata".into(),
-            }},
-        ]);
+            },
+        }]);
         assert!(c.has_multimodal());
     }
 

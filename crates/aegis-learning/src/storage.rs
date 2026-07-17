@@ -97,7 +97,9 @@ impl UserFactStore {
 
     /// Path to the per-fact JSON file for a given id, inside `room/`.
     pub fn path_for(&self, room: &str, id: &str) -> PathBuf {
-        self.dir.join(sanitize_room(room)).join(format!("{id}.json"))
+        self.dir
+            .join(sanitize_room(room))
+            .join(format!("{id}.json"))
     }
 
     /// Persist a fact. Creates the room subdirectory if needed.
@@ -192,7 +194,10 @@ impl UserFactStore {
             value: new_value.to_string(),
             source: crate::fact::FactSource::User,
             confidence: 0.95,
-            evidence: format!("user correction of {} (was: {})", existing.id, existing.value),
+            evidence: format!(
+                "user correction of {} (was: {})",
+                existing.id, existing.value
+            ),
             first_seen: now,
             last_seen: now,
             observation_count: 1,
@@ -269,7 +274,7 @@ impl UserFactStore {
                 let path = self.dir.join("index.json");
                 if let Ok(json) = serde_json::to_string_pretty(&idx) {
                     let _ = std::fs::write(path, json);
-            }
+                }
             }
             Err(e) => warn!("could not rebuild fact index: {e}"),
         }
@@ -300,7 +305,13 @@ fn aegis_config_root() -> PathBuf {
 /// Normalize a room name to a safe directory segment.
 fn sanitize_room(room: &str) -> String {
     room.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -418,8 +429,10 @@ mod tests {
     #[test]
     fn test_group_by_room_orders_by_confidence() {
         let (s, _dir) = store();
-        let a = UserFact::new("lang", "primary", "rust", FactSource::Git).with_initial_confidence(0.7);
-        let b = UserFact::new("lang", "secondary", "python", FactSource::Git).with_initial_confidence(0.9);
+        let a =
+            UserFact::new("lang", "primary", "rust", FactSource::Git).with_initial_confidence(0.7);
+        let b = UserFact::new("lang", "secondary", "python", FactSource::Git)
+            .with_initial_confidence(0.9);
         s.save(&a).unwrap();
         s.save(&b).unwrap();
         let groups = s.group_by_room();
@@ -508,7 +521,10 @@ mod tests {
         std::fs::write(&path, "not valid json").unwrap();
         // load_all should warn and skip, not panic.
         let all = s.load_all();
-        assert!(all.is_empty(), "corrupt file should be skipped, got {all:?}");
+        assert!(
+            all.is_empty(),
+            "corrupt file should be skipped, got {all:?}"
+        );
         // We keep the tempdir alive by not dropping dir.
         drop(dir);
     }

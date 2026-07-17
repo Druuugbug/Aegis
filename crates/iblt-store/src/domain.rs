@@ -223,7 +223,10 @@ mod tests {
         mgr.register(config);
         mgr.record_add(&id, 10).unwrap();
         mgr.record_add(&id, 10).unwrap();
-        assert_eq!(mgr.record_add(&id, 10), Err(DomainError::EntryLimitExceeded));
+        assert_eq!(
+            mgr.record_add(&id, 10),
+            Err(DomainError::EntryLimitExceeded)
+        );
     }
 
     #[test]
@@ -233,6 +236,9 @@ mod tests {
         let mut config = DomainConfig::new(id.clone());
         config.max_bytes = 100;
         mgr.register(config);
-        assert_eq!(mgr.record_add(&id, 200), Err(DomainError::ByteLimitExceeded));
+        assert_eq!(
+            mgr.record_add(&id, 200),
+            Err(DomainError::ByteLimitExceeded)
+        );
     }
 }

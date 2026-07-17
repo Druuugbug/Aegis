@@ -15,12 +15,12 @@
 //! let task = tm.create_task("summarize", serde_json::json!({"text": "..."}));
 //! ```
 
-pub mod types;
+pub mod auth;
+pub mod client;
+pub mod server;
 pub mod state_machine;
 pub mod task_manager;
-pub mod auth;
-pub mod server;
-pub mod client;
+pub mod types;
 
 // Single canonical Agent Card (A2A spec): the v0.2.5-shaped one in `types`.
 // (An older simplified duplicate lived here; removed to avoid two AgentCard

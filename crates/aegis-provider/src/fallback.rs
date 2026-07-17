@@ -29,12 +29,18 @@ pub struct FallbackChain {
 impl FallbackChain {
     /// Creates a new `instance`.
     pub fn new(providers: Vec<Arc<dyn Provider>>) -> Self {
-        assert!(!providers.is_empty(), "FallbackChain requires at least one provider");
+        assert!(
+            !providers.is_empty(),
+            "FallbackChain requires at least one provider"
+        );
         let breakers = providers
             .iter()
             .map(|_| CircuitBreaker::new(3, 60))
             .collect();
-        Self { providers, breakers }
+        Self {
+            providers,
+            breakers,
+        }
     }
 }
 
@@ -51,7 +57,8 @@ impl Provider for FallbackChain {
     ) -> Result<LlmResponse> {
         let mut last_err = None;
         let mut all_open = true;
-        for (i, (provider, breaker)) in self.providers.iter().zip(self.breakers.iter()).enumerate() {
+        for (i, (provider, breaker)) in self.providers.iter().zip(self.breakers.iter()).enumerate()
+        {
             if !breaker.allow_request() {
                 tracing::info!(
                     "Provider '{}' is circuit-broken (state: {}), skipping",
@@ -101,7 +108,8 @@ impl Provider for FallbackChain {
     ) -> Result<StreamResult> {
         let mut last_err = None;
         let mut all_open = true;
-        for (i, (provider, breaker)) in self.providers.iter().zip(self.breakers.iter()).enumerate() {
+        for (i, (provider, breaker)) in self.providers.iter().zip(self.breakers.iter()).enumerate()
+        {
             if !breaker.allow_request() {
                 tracing::info!(
                     "Provider '{}' is circuit-broken (state: {}), skipping",

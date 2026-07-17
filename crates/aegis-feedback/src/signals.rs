@@ -249,7 +249,9 @@ mod tests {
     fn test_excessive_tool_calls_penalty() {
         let ctx = task_ctx(20, 0, true);
         let signals = FeedbackCollector::collect_signals(&ctx, None);
-        let has_excessive = signals.iter().any(|s| matches!(s.source, SignalSource::ExcessiveToolCalls));
+        let has_excessive = signals
+            .iter()
+            .any(|s| matches!(s.source, SignalSource::ExcessiveToolCalls));
         assert!(has_excessive);
     }
 
@@ -268,9 +270,18 @@ mod tests {
     #[test]
     fn test_score_clamped() {
         let signals = vec![
-            Signal { source: SignalSource::UserUndo, score: -0.8 },
-            Signal { source: SignalSource::UserRetried, score: -0.6 },
-            Signal { source: SignalSource::ToolError, score: -0.4 },
+            Signal {
+                source: SignalSource::UserUndo,
+                score: -0.8,
+            },
+            Signal {
+                source: SignalSource::UserRetried,
+                score: -0.6,
+            },
+            Signal {
+                source: SignalSource::ToolError,
+                score: -0.4,
+            },
         ];
         let score = FeedbackCollector::composite_score(&signals);
         assert_eq!(score, -1.0); // clamped

@@ -16,7 +16,9 @@ fn parse_duration_str(s: &str) -> Option<Duration> {
 
     while !remaining.is_empty() {
         // Parse number
-        let num_end = remaining.find(|c: char| !c.is_ascii_digit()).unwrap_or(remaining.len());
+        let num_end = remaining
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(remaining.len());
         if num_end == 0 {
             break;
         }
@@ -76,10 +78,7 @@ pub fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Duration {
 /// window boundary is far more accurate than a 60-second guess.
 pub fn parse_retry_after_opt(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
     // 1. Retry-After
-    if let Some(val) = headers
-        .get("retry-after")
-        .and_then(|v| v.to_str().ok())
-    {
+    if let Some(val) = headers.get("retry-after").and_then(|v| v.to_str().ok()) {
         // Try integer seconds
         if let Ok(secs) = val.trim().parse::<u64>() {
             return Some(Duration::from_secs(secs));
@@ -172,7 +171,10 @@ mod tests {
     #[test]
     fn test_parse_opt_some_when_present() {
         let headers = headers_with("retry-after", "45");
-        assert_eq!(parse_retry_after_opt(&headers), Some(Duration::from_secs(45)));
+        assert_eq!(
+            parse_retry_after_opt(&headers),
+            Some(Duration::from_secs(45))
+        );
     }
 
     #[test]

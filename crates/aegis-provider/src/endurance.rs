@@ -218,8 +218,7 @@ mod tests {
     #[tokio::test]
     async fn recovers_after_probing_through_quota_errors() {
         let flaky = FlakyProvider::new(2, "quota exhausted (retry after Some(300)s)");
-        let p = EnduringProvider::new(flaky.clone())
-            .with_probe_interval(Duration::from_millis(1));
+        let p = EnduringProvider::new(flaky.clone()).with_probe_interval(Duration::from_millis(1));
         let r = p.chat(&msgs(), None).await.unwrap();
         assert_eq!(r.message.text(), "ok");
         // 2 failed probes + 1 success.
@@ -229,8 +228,7 @@ mod tests {
     #[tokio::test]
     async fn stops_immediately_on_hard_error() {
         let flaky = FlakyProvider::new(100, "insufficient balance");
-        let p = EnduringProvider::new(flaky.clone())
-            .with_probe_interval(Duration::from_millis(1));
+        let p = EnduringProvider::new(flaky.clone()).with_probe_interval(Duration::from_millis(1));
         let r = p.chat(&msgs(), None).await;
         assert!(r.is_err());
         // No probing on a hard error.
@@ -255,8 +253,12 @@ mod tests {
         assert!(is_quota_wait_error(&anyhow::anyhow!(
             "rate limited (retry after None s)"
         )));
-        assert!(is_quota_wait_error(&anyhow::anyhow!("HTTP 429 Too Many Requests")));
-        assert!(!is_quota_wait_error(&anyhow::anyhow!("insufficient balance")));
+        assert!(is_quota_wait_error(&anyhow::anyhow!(
+            "HTTP 429 Too Many Requests"
+        )));
+        assert!(!is_quota_wait_error(&anyhow::anyhow!(
+            "insufficient balance"
+        )));
         assert!(!is_quota_wait_error(&anyhow::anyhow!("401 unauthorized")));
     }
 }

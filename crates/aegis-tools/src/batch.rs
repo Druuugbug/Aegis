@@ -134,15 +134,21 @@ pub async fn execute_batch(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::registry::{Tool, ToolRegistry, ToolContext};
+    use crate::registry::{Tool, ToolContext, ToolRegistry};
     use async_trait::async_trait;
 
     struct EchoTool;
     #[async_trait]
     impl Tool for EchoTool {
-        fn name(&self) -> &str { "echo" }
-        fn description(&self) -> &str { "Echo tool" }
-        fn parameters(&self) -> Value { serde_json::json!({"type": "object"}) }
+        fn name(&self) -> &str {
+            "echo"
+        }
+        fn description(&self) -> &str {
+            "Echo tool"
+        }
+        fn parameters(&self) -> Value {
+            serde_json::json!({"type": "object"})
+        }
         async fn execute(&self, args: Value, _ctx: &ToolContext<'_>) -> Result<String> {
             Ok(args["msg"].as_str().unwrap_or("ok").to_string())
         }
@@ -150,7 +156,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_batch_empty() {
-        let results = execute_batch(vec![], Arc::new(ToolRegistry::new()), "/tmp".into(), "s".into(), 4).await;
+        let results = execute_batch(
+            vec![],
+            Arc::new(ToolRegistry::new()),
+            "/tmp".into(),
+            "s".into(),
+            4,
+        )
+        .await;
         assert!(results.is_empty());
     }
 
@@ -167,7 +180,14 @@ mod tests {
     #[tokio::test]
     async fn test_batch_tool_not_found() {
         let items = vec![("nonexistent".to_string(), serde_json::json!({}))];
-        let results = execute_batch(items, Arc::new(ToolRegistry::new()), "/tmp".into(), "s".into(), 4).await;
+        let results = execute_batch(
+            items,
+            Arc::new(ToolRegistry::new()),
+            "/tmp".into(),
+            "s".into(),
+            4,
+        )
+        .await;
         assert_eq!(results.len(), 1);
         assert!(results[0].is_err());
     }

@@ -33,9 +33,7 @@ pub async fn health() -> Json<HealthResponse> {
 }
 
 /// Returns version and current model info.
-pub async fn version(
-    State(state): State<Arc<AppState>>,
-) -> Json<VersionResponse> {
+pub async fn version(State(state): State<Arc<AppState>>) -> Json<VersionResponse> {
     Json(VersionResponse {
         version: env!("CARGO_PKG_VERSION"),
         model: state.config.model.default.clone(),
@@ -65,11 +63,16 @@ pub async fn chat(
         return Err(ApiError::BadRequest("message cannot be empty".into()));
     }
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-    state.agent_tx.send(ChatMessage {
-        content: req.message,
-        reply: reply_tx,
-    }).await.map_err(|_| ApiError::AgentError("agent thread unavailable".into()))?;
-    let response = reply_rx.await
+    state
+        .agent_tx
+        .send(ChatMessage {
+            content: req.message,
+            reply: reply_tx,
+        })
+        .await
+        .map_err(|_| ApiError::AgentError("agent thread unavailable".into()))?;
+    let response = reply_rx
+        .await
         .map_err(|_| ApiError::AgentError("agent dropped response".into()))?;
     Ok(Json(ChatResponse { response }))
 }
@@ -88,10 +91,14 @@ pub async fn chat_stream(
     }
 
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-    state.agent_tx.send(ChatMessage {
-        content: req.message,
-        reply: reply_tx,
-    }).await.map_err(|_| ApiError::AgentError("agent thread unavailable".into()))?;
+    state
+        .agent_tx
+        .send(ChatMessage {
+            content: req.message,
+            reply: reply_tx,
+        })
+        .await
+        .map_err(|_| ApiError::AgentError("agent thread unavailable".into()))?;
 
     // Build SSE stream: wait for the reply, then emit events
     let sse_stream = async move {
@@ -106,9 +113,8 @@ pub async fn chat_stream(
             }
             Err(_) => {
                 let data = serde_json::json!({"error": "agent dropped response"}).to_string();
-                let events: Vec<Result<Event, Infallible>> = vec![
-                    Ok(Event::default().event("error").data(&data)),
-                ];
+                let events: Vec<Result<Event, Infallible>> =
+                    vec![Ok(Event::default().event("error").data(&data))];
                 stream::iter(events)
             }
         }
@@ -128,7 +134,10 @@ mod tests {
 
     #[test]
     fn health_response_serde() {
-        let resp = HealthResponse { status: "ok", version: "1.0.0" };
+        let resp = HealthResponse {
+            status: "ok",
+            version: "1.0.0",
+        };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"status\":\"ok\""));
         assert!(json.contains("\"version\":\"1.0.0\""));
@@ -159,7 +168,9 @@ mod tests {
 
     #[test]
     fn chat_response_serde() {
-        let resp = ChatResponse { response: "hello!".into() };
+        let resp = ChatResponse {
+            response: "hello!".into(),
+        };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("hello!"));
     }

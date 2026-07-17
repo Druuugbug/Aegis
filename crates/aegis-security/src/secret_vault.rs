@@ -27,8 +27,7 @@ struct SecretStore {
 }
 
 fn store_path() -> PathBuf {
-    aegis_types::paths::config_dir()
-        .join("secrets.json")
+    aegis_types::paths::config_dir().join("secrets.json")
 }
 
 /// Token wrapping: `«secret:NAME»`. Chosen to be stable, copyable verbatim by a
@@ -88,7 +87,11 @@ impl SecretVault {
             enabled,
             auto_scan,
             secrets,
-            patterns: if enabled { secret_patterns() } else { Vec::new() },
+            patterns: if enabled {
+                secret_patterns()
+            } else {
+                Vec::new()
+            },
             auto_seq: 0,
         }
     }
@@ -114,10 +117,7 @@ impl SecretVault {
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
-                    let _ = std::fs::set_permissions(
-                        &path,
-                        std::fs::Permissions::from_mode(0o600),
-                    );
+                    let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
                 }
             }
         }
@@ -138,7 +138,9 @@ impl SecretVault {
     /// remote passwords already stored elsewhere). Still tokenized in-session.
     pub fn register_ephemeral(&mut self, name: &str, value: &str) {
         if self.enabled && !value.is_empty() && !name.trim().is_empty() {
-            self.secrets.entry(name.trim().to_string()).or_insert_with(|| value.to_string());
+            self.secrets
+                .entry(name.trim().to_string())
+                .or_insert_with(|| value.to_string());
         }
     }
 
@@ -218,7 +220,14 @@ impl SecretVault {
     /// A masked preview for a secret (`••••last4`), safe to display/log.
     pub fn masked(&self, name: &str) -> Option<String> {
         self.secrets.get(name.trim()).map(|v| {
-            let tail: String = v.chars().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect();
+            let tail: String = v
+                .chars()
+                .rev()
+                .take(4)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
             format!("••••{tail}")
         })
     }
@@ -241,7 +250,8 @@ mod tests {
     fn tokenize_detokenize_roundtrip() {
         let mut v = SecretVault::new(true, false);
         // Avoid touching the real store in tests: operate purely in-memory.
-        v.secrets.insert("openai".into(), "sk-supersecretvalue123456".into());
+        v.secrets
+            .insert("openai".into(), "sk-supersecretvalue123456".into());
         let toks = v.tokenize("my key is sk-supersecretvalue123456 ok");
         assert!(toks.contains("«secret:openai»"));
         assert!(!toks.contains("sk-supersecretvalue123456"));

@@ -91,9 +91,7 @@ impl Tool for DocExtractProTool {
             cmd.output(),
         )
         .await
-        .map_err(|_| {
-            anyhow::anyhow!("doc_extract_pro timed out after {}s", self.timeout_secs)
-        })?
+        .map_err(|_| anyhow::anyhow!("doc_extract_pro timed out after {}s", self.timeout_secs))?
         .map_err(|e| {
             anyhow::anyhow!(
                 "failed to run '{}': {e}. Is opendataloader-pdf installed and on PATH?",

@@ -60,6 +60,69 @@ fn is_risky_for_snapshot(cmd: &str) -> bool {
     PATTERNS.iter().any(|p| l.contains(p))
 }
 
+fn gateway_self_management_reason(cmd: &str) -> Option<String> {
+    let gateway_pid = std::env::var("AEGIS_GATEWAY_PID").ok();
+    gateway_self_management_reason_with_pid(cmd, gateway_pid.as_deref())
+}
+
+fn gateway_self_management_reason_with_pid(
+    cmd: &str,
+    gateway_pid: Option<&str>,
+) -> Option<String> {
+    let words: Vec<String> = cmd
+        .to_ascii_lowercase()
+        .split(|c: char| !(c.is_ascii_alphanumeric() || "-_.".contains(c)))
+        .filter(|w| !w.is_empty())
+        .map(ToString::to_string)
+        .collect();
+
+    let has = |word: &str| words.iter().any(|w| w == word);
+    let has_contains = |needle: &str| words.iter().any(|w| w.contains(needle));
+    let has_seq = |seq: &[&str]| words.windows(seq.len()).any(|w| {
+        w.iter().map(String::as_str).eq(seq.iter().copied())
+    });
+    let mentions_gateway = has_contains("aegis-gateway") || has_seq(&["aegis", "gateway"]);
+
+    if mentions_gateway
+        && (has_seq(&["aegis", "gateway", "stop"])
+            || has_seq(&["aegis", "gateway", "restart"])
+            || has_seq(&["aegis", "gateway", "uninstall"]))
+    {
+        return Some(
+            "refusing to stop or restart the active aegis gateway from inside itself".to_string(),
+        );
+    }
+
+    if mentions_gateway
+        && (has("systemctl") || has("service"))
+        && (has("stop") || has("restart") || has("kill") || has("disable") || has("mask"))
+    {
+        return Some(
+            "refusing to mutate the active aegis-gateway service from inside itself".to_string(),
+        );
+    }
+
+    if has_contains("gateway.lock") && (has("rm") || has("unlink") || has("truncate")) {
+        return Some(
+            "refusing to remove the active gateway lock from inside the gateway".to_string(),
+        );
+    }
+
+    if mentions_gateway && (has("pkill") || has("killall")) {
+        return Some(
+            "refusing to kill aegis gateway processes from inside the gateway".to_string(),
+        );
+    }
+
+    if let Some(pid) = gateway_pid {
+        if !pid.trim().is_empty() && has("kill") && has(pid.trim()) {
+            return Some("refusing to kill the current aegis gateway process".to_string());
+        }
+    }
+
+    None
+}
+
 pub struct TerminalTool;
 
 #[async_trait]
@@ -83,6 +146,14 @@ impl Tool for TerminalTool {
     async fn execute(&self, args: Value, ctx: &ToolContext<'_>) -> Result<String> {
         let cmd = args["command"].as_str().unwrap_or("");
         let timeout = args["timeout"].as_u64().unwrap_or(300);
+
+        if std::env::var("AEGIS_GATEWAY_PROTECT").ok().as_deref() == Some("1") {
+            if let Some(reason) = gateway_self_management_reason(cmd) {
+                return Ok(format!(
+                    "Command blocked: {reason}. Run gateway management commands from a separate shell, not through the active aegis session."
+                ));
+            }
+        }
 
         // Security check
         match check_command(cmd) {
@@ -112,6 +183,7 @@ impl Tool for TerminalTool {
             }
         }
 
+        let started = std::time::Instant::now();
         let mut command = tokio::process::Command::new("sh");
         command
             .arg("-c")
@@ -206,22 +278,16 @@ impl Tool for TerminalTool {
             result.push_str(&format!("\n[exit code: {code}]"));
         }
 
-        // Smart compaction for large terminal output: keep head + tail lines
-        // so errors (usually at the end) are always visible.
-        if result.len() > 50_000 {
-            let lines: Vec<&str> = result.lines().collect();
-            if lines.len() > 100 {
-                let head: String = lines[..20].join("\n");
-                let tail: String = lines[lines.len() - 80..].join("\n");
-                let omitted = lines.len() - 100;
-                result = format!("{head}\n\n... [{omitted} lines omitted] ...\n\n{tail}");
-            } else {
-                result.truncate(result.floor_char_boundary(50_000));
-                result.push_str("\n... [output truncated at 50KB]");
-            }
-        }
-
-        Ok(sanitize_credentials(&result))
+        let safe_result = sanitize_credentials(&result);
+        let safe_cmd = sanitize_credentials(cmd);
+        Ok(crate::output_buffer::terminal_receipt(
+            &ctx.session_id,
+            &safe_cmd,
+            &ctx.cwd,
+            code,
+            started.elapsed().as_millis(),
+            &safe_result,
+        ))
     }
 }
 
@@ -2730,6 +2796,32 @@ mod tests {
             identity: None,
             sandbox_enabled: false,
         }
+    }
+
+    #[test]
+    fn gateway_self_management_guard_blocks_service_stop() {
+        let cmd = "XDG_RUNTIME_DIR=/run/user/0 systemctl --user stop aegis-gateway.service";
+        assert!(gateway_self_management_reason(cmd).is_some());
+    }
+
+    #[test]
+    fn gateway_self_management_guard_blocks_current_pid_kill() {
+        assert!(
+            gateway_self_management_reason_with_pid("kill 362292", Some("362292")).is_some()
+        );
+    }
+
+    #[test]
+    fn gateway_self_management_guard_allows_status_checks() {
+        assert!(
+            gateway_self_management_reason("systemctl --user status aegis-gateway.service --no-pager")
+                .is_none()
+        );
+        assert!(
+            gateway_self_management_reason("journalctl --user -u aegis-gateway.service -n 40 --no-pager")
+                .is_none()
+        );
+        assert!(gateway_self_management_reason("pgrep -af aegis gateway").is_none());
     }
 
     #[tokio::test]

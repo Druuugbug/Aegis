@@ -241,7 +241,12 @@ fn paint(g: &mut Inner) {
             .map(|t| fmt_dur(t.elapsed()))
             .unwrap_or_else(|| "0ms".into());
         let tail = reasoning_tail(&g.reasoning_buf, 60);
-        lines.push(format!("{} {} {}", wave(idx), tail.dimmed(), format!("({dur})").dimmed()));
+        lines.push(format!(
+            "{} {} {}",
+            wave(idx),
+            tail.dimmed(),
+            format!("({dur})").dimmed()
+        ));
     } else {
         let secs = g.started.elapsed().as_secs();
         if secs >= 1 {
@@ -429,7 +434,8 @@ fn char_width(c: char) -> usize {
         || (0xFE30..=0xFE4F).contains(&cp)     // CJK compatibility forms
         || (0xFF00..=0xFF60).contains(&cp)     // fullwidth forms
         || (0xFFE0..=0xFFE6).contains(&cp)
-        || (0x1F300..=0x1FAFF).contains(&cp)   // emoji / pictographs
+        || (0x1F300..=0x1FAFF).contains(&cp)
+    // emoji / pictographs
     {
         2
     } else {

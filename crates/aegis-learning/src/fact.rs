@@ -106,7 +106,12 @@ pub struct UserFact {
 
 impl UserFact {
     /// Construct a new fact with sensible defaults.
-    pub fn new(room: impl Into<String>, key: impl Into<String>, value: impl Into<String>, source: FactSource) -> Self {
+    pub fn new(
+        room: impl Into<String>,
+        key: impl Into<String>,
+        value: impl Into<String>,
+        source: FactSource,
+    ) -> Self {
         let now = Utc::now();
         Self {
             id: format!("fact-{}", &uuid::Uuid::new_v4().to_string()[..8]),
@@ -226,7 +231,12 @@ impl MergeReport {
     pub fn one_line(&self) -> String {
         format!(
             "added={} reinforced={} contested={} superseded={} filtered={} errors={}",
-            self.added, self.reinforced, self.contested, self.superseded, self.filtered, self.errors
+            self.added,
+            self.reinforced,
+            self.contested,
+            self.superseded,
+            self.filtered,
+            self.errors
         )
     }
 }
@@ -283,7 +293,10 @@ mod tests {
         let now = Utc::now();
         let before = f.confidence;
         f.reinforce(now, true);
-        assert!(f.confidence > before, "matching observation should raise confidence");
+        assert!(
+            f.confidence > before,
+            "matching observation should raise confidence"
+        );
         assert_eq!(f.observation_count, 2);
     }
 
@@ -293,7 +306,10 @@ mod tests {
         let now = Utc::now();
         let before = f.confidence;
         f.reinforce(now, false);
-        assert!(f.confidence < before, "conflicting observation should lower confidence");
+        assert!(
+            f.confidence < before,
+            "conflicting observation should lower confidence"
+        );
     }
 
     #[test]
@@ -344,7 +360,13 @@ mod tests {
 
     #[test]
     fn test_fact_source_as_str_round_trip() {
-        for src in [FactSource::Git, FactSource::Shell, FactSource::Project, FactSource::Environment, FactSource::User] {
+        for src in [
+            FactSource::Git,
+            FactSource::Shell,
+            FactSource::Project,
+            FactSource::Environment,
+            FactSource::User,
+        ] {
             let s = src.as_str();
             let parsed = FactSource::parse(s).unwrap();
             assert_eq!(parsed, src);
@@ -354,7 +376,10 @@ mod tests {
     #[test]
     fn test_fact_source_parse_env_alias() {
         assert_eq!(FactSource::parse("env"), Some(FactSource::Environment));
-        assert_eq!(FactSource::parse("environment"), Some(FactSource::Environment));
+        assert_eq!(
+            FactSource::parse("environment"),
+            Some(FactSource::Environment)
+        );
         assert_eq!(FactSource::parse("nonsense"), None);
     }
 
@@ -448,7 +473,11 @@ mod tests {
 
     #[test]
     fn test_fact_status_serde_roundtrip() {
-        for s in [FactStatus::Active, FactStatus::Superseded, FactStatus::Forgotten] {
+        for s in [
+            FactStatus::Active,
+            FactStatus::Superseded,
+            FactStatus::Forgotten,
+        ] {
             let json = serde_json::to_string(&s).unwrap();
             let back: FactStatus = serde_json::from_str(&json).unwrap();
             assert_eq!(s, back);

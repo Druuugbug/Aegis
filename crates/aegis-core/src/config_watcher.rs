@@ -17,7 +17,14 @@ impl ConfigWatcher {
         let last_mtime = std::fs::metadata(&path)
             .and_then(|m| m.modified())
             .unwrap_or(SystemTime::UNIX_EPOCH);
-        (Self { path, last_mtime, tx }, rx)
+        (
+            Self {
+                path,
+                last_mtime,
+                tx,
+            },
+            rx,
+        )
     }
 
     /// Poll the config file for changes every 5 seconds, broadcasting updates.

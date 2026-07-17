@@ -11,9 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tracing::{info, warn};
 
-use crate::collectors::{
-    Collector, EnvCollector, GitCollector, ProjectCollector, ShellCollector,
-};
+use crate::collectors::{Collector, EnvCollector, GitCollector, ProjectCollector, ShellCollector};
 use crate::fact::{MergeReport, UserFact, FACT_VERSION};
 use crate::storage::UserFactStore;
 
@@ -205,9 +203,7 @@ impl LearningEngine {
                 continue;
             }
             // Find a matching active fact by (room, key).
-            let incumbent = existing
-                .iter()
-                .find(|f| f.is_active() && f.same_key(&cand));
+            let incumbent = existing.iter().find(|f| f.is_active() && f.same_key(&cand));
             match incumbent {
                 None => {
                     // No incumbent → add as a fresh observation.
@@ -322,8 +318,7 @@ impl LearningEngine {
         if groups.is_empty() {
             return None;
         }
-        let facts: Vec<crate::fact::UserFact> =
-            groups.into_values().flatten().collect();
+        let facts: Vec<crate::fact::UserFact> = groups.into_values().flatten().collect();
         Some(crate::prompt::PromptFacts { facts })
     }
 }
@@ -337,10 +332,7 @@ mod tests {
     fn engine() -> (LearningEngine, TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let store = UserFactStore::new(dir.path().to_path_buf());
-        (
-            LearningEngine::new(EngineConfig::default(), store),
-            dir,
-        )
+        (LearningEngine::new(EngineConfig::default(), store), dir)
     }
 
     #[test]
@@ -402,7 +394,10 @@ mod tests {
     fn test_run_default_collectors_succeeds() {
         let (e, _d) = engine();
         let report = e.run_default_collectors().unwrap();
-        assert!(report.candidates > 0 || report.errors == 0, "got {report:?}");
+        assert!(
+            report.candidates > 0 || report.errors == 0,
+            "got {report:?}"
+        );
     }
 
     #[test]
@@ -527,9 +522,25 @@ mod tests {
     #[test]
     fn test_engine_forget_room() {
         let (e, _d) = engine();
-        e.store().save(&UserFact::new("lang", "primary", "rust", FactSource::Git)).unwrap();
-        e.store().save(&UserFact::new("lang", "secondary", "python", FactSource::Git)).unwrap();
-        e.store().save(&UserFact::new("workflow", "editor", "vim", FactSource::Environment)).unwrap();
+        e.store()
+            .save(&UserFact::new("lang", "primary", "rust", FactSource::Git))
+            .unwrap();
+        e.store()
+            .save(&UserFact::new(
+                "lang",
+                "secondary",
+                "python",
+                FactSource::Git,
+            ))
+            .unwrap();
+        e.store()
+            .save(&UserFact::new(
+                "workflow",
+                "editor",
+                "vim",
+                FactSource::Environment,
+            ))
+            .unwrap();
         let count = e.forget_room("lang").unwrap();
         assert_eq!(count, 2);
         assert_eq!(e.store().count_active(), 1);
@@ -538,8 +549,17 @@ mod tests {
     #[test]
     fn test_engine_forget_all() {
         let (e, _d) = engine();
-        e.store().save(&UserFact::new("lang", "primary", "rust", FactSource::Git)).unwrap();
-        e.store().save(&UserFact::new("workflow", "editor", "vim", FactSource::Environment)).unwrap();
+        e.store()
+            .save(&UserFact::new("lang", "primary", "rust", FactSource::Git))
+            .unwrap();
+        e.store()
+            .save(&UserFact::new(
+                "workflow",
+                "editor",
+                "vim",
+                FactSource::Environment,
+            ))
+            .unwrap();
         let count = e.forget_all().unwrap();
         assert_eq!(count, 2);
         assert_eq!(e.store().count_active(), 0);
@@ -555,9 +575,14 @@ mod tests {
     #[test]
     fn test_engine_render_facts_context_some() {
         let (e, _d) = engine();
-        e.store().save(&UserFact::new("lang", "primary", "rust", FactSource::Git)).unwrap();
+        e.store()
+            .save(&UserFact::new("lang", "primary", "rust", FactSource::Git))
+            .unwrap();
         let ctx = e.render_facts_context().expect("facts present");
-        assert!(ctx.facts.iter().any(|f| f.room == "lang" && f.value == "rust"));
+        assert!(ctx
+            .facts
+            .iter()
+            .any(|f| f.room == "lang" && f.value == "rust"));
     }
 
     #[test]

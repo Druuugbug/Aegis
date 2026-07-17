@@ -196,7 +196,7 @@ fn extract_pdf(path: &Path, markdown: bool, pages: Option<&str>) -> Result<Strin
 }
 
 fn extract_spreadsheet(path: &Path, sheet: Option<&str>) -> Result<String> {
-    use calamine::{open_workbook_auto, Data, Reader};
+    use calamine::{open_workbook_auto, Reader};
 
     let mut workbook =
         open_workbook_auto(path).map_err(|e| anyhow::anyhow!("cannot open spreadsheet: {e}"))?;
@@ -212,7 +212,9 @@ fn extract_spreadsheet(path: &Path, sheet: Option<&str>) -> Result<String> {
         let range = match workbook.worksheet_range(&name) {
             Ok(r) => r,
             Err(e) => {
-                out.push_str(&format!("# Sheet: {name}\n\n(error reading sheet: {e})\n\n"));
+                out.push_str(&format!(
+                    "# Sheet: {name}\n\n(error reading sheet: {e})\n\n"
+                ));
                 continue;
             }
         };

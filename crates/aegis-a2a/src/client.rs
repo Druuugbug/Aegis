@@ -59,7 +59,9 @@ impl A2AClient {
             return Err(anyhow::anyhow!("RPC error {}: {}", err.code, err.message));
         }
 
-        let result = resp.result.ok_or_else(|| anyhow::anyhow!("No result in response"))?;
+        let result = resp
+            .result
+            .ok_or_else(|| anyhow::anyhow!("No result in response"))?;
         serde_json::from_value(result).map_err(|e| anyhow::anyhow!("Deserialize error: {}", e))
     }
 
@@ -93,10 +95,7 @@ impl A2AClient {
             params: Some(serde_json::to_value(params)?),
         };
 
-        let mut req_builder = self
-            .client
-            .post(&self.base_url)
-            .json(&body);
+        let mut req_builder = self.client.post(&self.base_url).json(&body);
 
         if let Some(token) = &self.token {
             req_builder = req_builder.bearer_auth(token);
@@ -130,7 +129,13 @@ impl A2AClient {
                     Some(Err(e)) => {
                         retry_count += 1;
                         if retry_count > MAX_RETRIES {
-                            let _ = tx.send(Err(anyhow::anyhow!("SSE error after {} retries: {}", MAX_RETRIES, e))).await;
+                            let _ = tx
+                                .send(Err(anyhow::anyhow!(
+                                    "SSE error after {} retries: {}",
+                                    MAX_RETRIES,
+                                    e
+                                )))
+                                .await;
                             break;
                         }
                         let backoff = Duration::from_millis(100 * (1 << retry_count));

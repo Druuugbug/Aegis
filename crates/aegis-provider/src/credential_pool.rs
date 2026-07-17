@@ -87,9 +87,10 @@ impl CredentialPool {
         }
 
         match self.strategy {
-            RotationStrategy::FillFirst => {
-                keys.iter().find(|k| k.is_available()).map(|k| k.key.clone())
-            }
+            RotationStrategy::FillFirst => keys
+                .iter()
+                .find(|k| k.is_available())
+                .map(|k| k.key.clone()),
             RotationStrategy::RoundRobin => {
                 let mut current = self.current.lock().expect("current lock poisoned");
                 let start = *current;
@@ -132,7 +133,10 @@ impl CredentialPool {
 
     /// Number of keys in the pool.
     pub fn len(&self) -> usize {
-        self.keys.lock().expect("credential pool lock poisoned").len()
+        self.keys
+            .lock()
+            .expect("credential pool lock poisoned")
+            .len()
     }
 
     /// Returns whether this value empty.

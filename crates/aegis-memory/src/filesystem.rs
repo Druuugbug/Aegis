@@ -253,7 +253,9 @@ mod tests {
     #[tokio::test]
     async fn memfs_write_and_read() {
         let fs = MemFs::new();
-        fs.write("/test.txt", b"hello world", 0, WriteFlag::Create).await.unwrap();
+        fs.write("/test.txt", b"hello world", 0, WriteFlag::Create)
+            .await
+            .unwrap();
         let data = fs.read("/test.txt", 0, u64::MAX).await.unwrap();
         assert_eq!(data, b"hello world");
     }
@@ -261,7 +263,9 @@ mod tests {
     #[tokio::test]
     async fn memfs_read_offset() {
         let fs = MemFs::new();
-        fs.write("/f.txt", b"abcdefghij", 0, WriteFlag::Create).await.unwrap();
+        fs.write("/f.txt", b"abcdefghij", 0, WriteFlag::Create)
+            .await
+            .unwrap();
         let data = fs.read("/f.txt", 5, 3).await.unwrap();
         assert_eq!(data, b"fgh");
     }
@@ -269,8 +273,12 @@ mod tests {
     #[tokio::test]
     async fn memfs_append() {
         let fs = MemFs::new();
-        fs.write("/f.txt", b"hello", 0, WriteFlag::Create).await.unwrap();
-        fs.write("/f.txt", b" world", 0, WriteFlag::Append).await.unwrap();
+        fs.write("/f.txt", b"hello", 0, WriteFlag::Create)
+            .await
+            .unwrap();
+        fs.write("/f.txt", b" world", 0, WriteFlag::Append)
+            .await
+            .unwrap();
         let data = fs.read("/f.txt", 0, u64::MAX).await.unwrap();
         assert_eq!(data, b"hello world");
     }
@@ -278,8 +286,12 @@ mod tests {
     #[tokio::test]
     async fn memfs_overwrite() {
         let fs = MemFs::new();
-        fs.write("/f.txt", b"old", 0, WriteFlag::Create).await.unwrap();
-        fs.write("/f.txt", b"new", 0, WriteFlag::Overwrite).await.unwrap();
+        fs.write("/f.txt", b"old", 0, WriteFlag::Create)
+            .await
+            .unwrap();
+        fs.write("/f.txt", b"new", 0, WriteFlag::Overwrite)
+            .await
+            .unwrap();
         let data = fs.read("/f.txt", 0, u64::MAX).await.unwrap();
         assert_eq!(data, b"new");
     }
@@ -295,14 +307,18 @@ mod tests {
     async fn memfs_exists() {
         let fs = MemFs::new();
         assert!(!fs.exists("/f.txt").await);
-        fs.write("/f.txt", b"x", 0, WriteFlag::Create).await.unwrap();
+        fs.write("/f.txt", b"x", 0, WriteFlag::Create)
+            .await
+            .unwrap();
         assert!(fs.exists("/f.txt").await);
     }
 
     #[tokio::test]
     async fn memfs_stat_file() {
         let fs = MemFs::new();
-        fs.write("/data.txt", b"12345", 0, WriteFlag::Create).await.unwrap();
+        fs.write("/data.txt", b"12345", 0, WriteFlag::Create)
+            .await
+            .unwrap();
         let info = fs.stat("/data.txt").await.unwrap();
         assert_eq!(info.size, 5);
         assert!(!info.is_dir);
@@ -311,7 +327,9 @@ mod tests {
     #[tokio::test]
     async fn memfs_stat_virtual_dir() {
         let fs = MemFs::new();
-        fs.write("/dir/file.txt", b"x", 0, WriteFlag::Create).await.unwrap();
+        fs.write("/dir/file.txt", b"x", 0, WriteFlag::Create)
+            .await
+            .unwrap();
         let info = fs.stat("/dir").await.unwrap();
         assert!(info.is_dir);
     }
@@ -325,8 +343,12 @@ mod tests {
     #[tokio::test]
     async fn memfs_read_dir() {
         let fs = MemFs::new();
-        fs.write("/dir/a.txt", b"a", 0, WriteFlag::Create).await.unwrap();
-        fs.write("/dir/b.txt", b"b", 0, WriteFlag::Create).await.unwrap();
+        fs.write("/dir/a.txt", b"a", 0, WriteFlag::Create)
+            .await
+            .unwrap();
+        fs.write("/dir/b.txt", b"b", 0, WriteFlag::Create)
+            .await
+            .unwrap();
         let entries = fs.read_dir("/dir").await.unwrap();
         assert_eq!(entries.len(), 2);
     }
@@ -334,7 +356,9 @@ mod tests {
     #[tokio::test]
     async fn memfs_remove_all() {
         let fs = MemFs::new();
-        fs.write("/dir/file.txt", b"x", 0, WriteFlag::Create).await.unwrap();
+        fs.write("/dir/file.txt", b"x", 0, WriteFlag::Create)
+            .await
+            .unwrap();
         fs.remove_all("/dir").await.unwrap();
         assert!(!fs.exists("/dir/file.txt").await);
     }
@@ -342,7 +366,9 @@ mod tests {
     #[tokio::test]
     async fn memfs_rename() {
         let fs = MemFs::new();
-        fs.write("/old.txt", b"data", 0, WriteFlag::Create).await.unwrap();
+        fs.write("/old.txt", b"data", 0, WriteFlag::Create)
+            .await
+            .unwrap();
         fs.rename("/old.txt", "/new.txt").await.unwrap();
         assert!(!fs.exists("/old.txt").await);
         assert!(fs.exists("/new.txt").await);
@@ -364,7 +390,9 @@ mod tests {
     async fn mountable_fs_basic() {
         let mut mfs = MountableFS::new();
         let mem = Arc::new(MemFs::new());
-        mem.write("file.txt", b"hello", 0, WriteFlag::Create).await.unwrap();
+        mem.write("file.txt", b"hello", 0, WriteFlag::Create)
+            .await
+            .unwrap();
         mfs.mount("/docs", mem);
 
         let data = mfs.read("/docs/file.txt", 0, u64::MAX).await.unwrap();
@@ -376,8 +404,12 @@ mod tests {
         let mut mfs = MountableFS::new();
         let mem1 = Arc::new(MemFs::new());
         let mem2 = Arc::new(MemFs::new());
-        mem1.write("f.txt", b"short", 0, WriteFlag::Create).await.unwrap();
-        mem2.write("f.txt", b"long", 0, WriteFlag::Create).await.unwrap();
+        mem1.write("f.txt", b"short", 0, WriteFlag::Create)
+            .await
+            .unwrap();
+        mem2.write("f.txt", b"long", 0, WriteFlag::Create)
+            .await
+            .unwrap();
         mfs.mount("/a", mem1);
         mfs.mount("/a/b", mem2);
 

@@ -68,7 +68,10 @@ pub async fn spawn_relevance_check(
     candidates.retain(|e| e.effective_confidence() >= config.min_confidence);
     let filtered_count = before_count - candidates.len();
     if filtered_count > 0 {
-        tracing::debug!("sidecar: pre-filtered {filtered_count} entries below confidence {}", config.min_confidence);
+        tracing::debug!(
+            "sidecar: pre-filtered {filtered_count} entries below confidence {}",
+            config.min_confidence
+        );
     }
 
     if candidates.is_empty() {
@@ -106,7 +109,9 @@ pub async fn spawn_relevance_check(
     let response = match result {
         Ok(Ok(resp)) => resp,
         _ => {
-            tracing::warn!("sidecar: relevance check failed or timed out, returning all candidates");
+            tracing::warn!(
+                "sidecar: relevance check failed or timed out, returning all candidates"
+            );
             return candidates;
         }
     };
@@ -132,9 +137,15 @@ pub async fn spawn_relevance_check(
     if config.reinforce_on_check {
         for (i, entry) in candidates.iter_mut().enumerate() {
             if indices.contains(&i) {
-                entry.reinforce(config.reinforce_pass_score, "sidecar: passed relevance check");
+                entry.reinforce(
+                    config.reinforce_pass_score,
+                    "sidecar: passed relevance check",
+                );
             } else {
-                entry.reinforce(config.reinforce_fail_score, "sidecar: failed relevance check");
+                entry.reinforce(
+                    config.reinforce_fail_score,
+                    "sidecar: failed relevance check",
+                );
             }
         }
     }

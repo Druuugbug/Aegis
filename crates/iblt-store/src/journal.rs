@@ -166,11 +166,7 @@ impl Journal {
     pub fn mark_flushed(&mut self, seq: u64) {
         self.flushed_seq = seq;
         // Remove entries that are flushed
-        while self
-            .entries
-            .front()
-            .is_some_and(|e| e.seq <= seq)
-        {
+        while self.entries.front().is_some_and(|e| e.seq <= seq) {
             self.entries.pop_front();
         }
     }

@@ -116,13 +116,19 @@ mod tests {
 
     #[test]
     fn invalid_zero_capacity() {
-        let cfg = StoreConfig { hot_capacity: 0, ..StoreConfig::default() };
+        let cfg = StoreConfig {
+            hot_capacity: 0,
+            ..StoreConfig::default()
+        };
         assert!(cfg.validate().is_err());
     }
 
     #[test]
     fn invalid_compression_level() {
-        let cfg = StoreConfig { compression_level: 10, ..StoreConfig::default() };
+        let cfg = StoreConfig {
+            compression_level: 10,
+            ..StoreConfig::default()
+        };
         assert!(cfg.validate().is_err());
     }
 

@@ -22,12 +22,24 @@ pub trait IbltCapacity {
     fn occupied_count(&self) -> usize;
     fn load_factor(&self) -> f64 {
         let total = self.cell_count();
-        if total == 0 { 0.0 } else { self.occupied_count() as f64 / total as f64 }
+        if total == 0 {
+            0.0
+        } else {
+            self.occupied_count() as f64 / total as f64
+        }
     }
 }
 
-pub trait IbltMerge<Rhs = Self> { type Output; fn union(&self, other: &Rhs) -> Self::Output; fn difference(&self, other: &Rhs) -> Self::Output; }
-pub trait IbltDetect<Rhs = Self> { type Result; fn likely_differs(&self, other: &Rhs) -> bool; fn detect_difference(&self, other: &Rhs) -> Self::Result; }
+pub trait IbltMerge<Rhs = Self> {
+    type Output;
+    fn union(&self, other: &Rhs) -> Self::Output;
+    fn difference(&self, other: &Rhs) -> Self::Output;
+}
+pub trait IbltDetect<Rhs = Self> {
+    type Result;
+    fn likely_differs(&self, other: &Rhs) -> bool;
+    fn detect_difference(&self, other: &Rhs) -> Self::Result;
+}
 
 #[cfg(test)]
 mod tests {

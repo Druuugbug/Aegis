@@ -18,12 +18,14 @@ mod client;
 pub use client::{register_mcp_tools, McpClient};
 
 pub mod http_client;
-pub use http_client::{McpHttpClient, McpHttpToolProxy, register_http_mcp_tools};
+pub use http_client::{register_http_mcp_tools, McpHttpClient, McpHttpToolProxy};
 
 pub mod server;
 pub use server::McpServer;
 
 pub mod resource;
-pub use resource::{ResourceDefinition, ResourceProvider, FileResourceProvider, MemoryResourceProvider};
+pub use resource::{
+    FileResourceProvider, MemoryResourceProvider, ResourceDefinition, ResourceProvider,
+};
 
 pub mod middleware;

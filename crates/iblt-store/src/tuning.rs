@@ -107,10 +107,10 @@ impl AutoTuner {
         self.iterations += 1;
 
         // Detect access pattern
-        let avg_reads: f64 = self.samples.iter().map(|s| s.reads as f64).sum::<f64>()
-            / self.samples.len() as f64;
-        let avg_writes: f64 = self.samples.iter().map(|s| s.writes as f64).sum::<f64>()
-            / self.samples.len() as f64;
+        let avg_reads: f64 =
+            self.samples.iter().map(|s| s.reads as f64).sum::<f64>() / self.samples.len() as f64;
+        let avg_writes: f64 =
+            self.samples.iter().map(|s| s.writes as f64).sum::<f64>() / self.samples.len() as f64;
         let avg_hit_rate: f64 =
             self.samples.iter().map(|s| s.hit_rate).sum::<f64>() / self.samples.len() as f64;
 
@@ -130,11 +130,8 @@ impl AutoTuner {
                 .map(|s| (s.reads + s.writes) as f64)
                 .collect();
             let mean = rates.iter().sum::<f64>() / rates.len() as f64;
-            let variance = rates
-                .iter()
-                .map(|r| (r - mean).powi(2))
-                .sum::<f64>()
-                / rates.len() as f64;
+            let variance =
+                rates.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / rates.len() as f64;
             let cv = if mean > 0.0 {
                 variance.sqrt() / mean
             } else {

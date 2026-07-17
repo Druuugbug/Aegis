@@ -78,10 +78,7 @@ impl Tool for WebFetchProTool {
         };
 
         let mut cmd = tokio::process::Command::new(&self.binary);
-        cmd.arg("extract")
-            .arg(subcmd)
-            .arg(url)
-            .arg(&tmp);
+        cmd.arg("extract").arg(subcmd).arg(url).arg(&tmp);
         if let Some(sel) = css {
             if !sel.trim().is_empty() {
                 cmd.arg("--css-selector").arg(sel);
@@ -121,7 +118,9 @@ impl Tool for WebFetchProTool {
                 output.status.code().unwrap_or(-1)
             ))
         } else {
-            Ok(format!("web_fetch_pro returned no content. stderr: {stderr}"))
+            Ok(format!(
+                "web_fetch_pro returned no content. stderr: {stderr}"
+            ))
         }
     }
 }

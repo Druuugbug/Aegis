@@ -61,10 +61,7 @@ impl CheckpointManager {
         self.next_id += 1;
 
         let entry_count = hot_entries.len();
-        let total_bytes: u64 = hot_entries
-            .values()
-            .map(|e| e.size_bytes)
-            .sum();
+        let total_bytes: u64 = hot_entries.values().map(|e| e.size_bytes).sum();
 
         let hot_snapshot: HashMap<Vec<u8>, Entry> = hot_entries
             .iter()

@@ -11,8 +11,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 fn cache_path() -> PathBuf {
-    aegis_types::paths::config_dir()
-        .join("model_ctx.json")
+    aegis_types::paths::config_dir().join("model_ctx.json")
 }
 
 /// Plausible bounds for a learned context window (tokens) — reject garbage.
@@ -73,7 +72,11 @@ pub fn parse_context_limit(err: &str) -> Option<u32> {
     }
 
     // Generic: "context window of 32768" / "context window is 32768".
-    for marker in ["context window of ", "context window is ", "context length of "] {
+    for marker in [
+        "context window of ",
+        "context window is ",
+        "context length of ",
+    ] {
         if let Some(idx) = lower.find(marker) {
             if let Some(n) = first_number(&lower[idx + marker.len()..]) {
                 if (MIN_CTX..=MAX_CTX).contains(&n) {

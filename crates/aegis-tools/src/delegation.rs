@@ -73,7 +73,9 @@ pub struct AgentInfo {
     pub url: String,
     /// Callback that the delegation tool will invoke to execute the task.
     /// Returns the agent's response as a String.
-    pub executor: Arc<dyn Fn(String, String) -> futures::future::BoxFuture<'static, Result<String>> + Send + Sync>,
+    pub executor: Arc<
+        dyn Fn(String, String) -> futures::future::BoxFuture<'static, Result<String>> + Send + Sync,
+    >,
 }
 
 impl AgentInfo {
@@ -82,7 +84,11 @@ impl AgentInfo {
         name: impl Into<String>,
         role: impl Into<String>,
         expertise: impl Into<String>,
-        executor: Arc<dyn Fn(String, String) -> futures::future::BoxFuture<'static, Result<String>> + Send + Sync>,
+        executor: Arc<
+            dyn Fn(String, String) -> futures::future::BoxFuture<'static, Result<String>>
+                + Send
+                + Sync,
+        >,
     ) -> Self {
         Self {
             name: name.into(),
@@ -108,7 +114,9 @@ pub struct DelegateWorkTool {
 impl DelegateWorkTool {
     /// Create a new `DelegateWorkTool` with the given list of available agents.
     pub fn new(agents: Vec<AgentInfo>) -> Self {
-        Self { available_agents: agents }
+        Self {
+            available_agents: agents,
+        }
     }
 
     fn find_agent(&self, name: &str) -> Option<&AgentInfo> {
@@ -125,7 +133,11 @@ impl DelegateWorkTool {
             .collect();
         // Merge dynamically-registered peers (peer tool / peers.json).
         for p in crate::peers::list() {
-            if !self.available_agents.iter().any(|a| a.name.eq_ignore_ascii_case(&p.name)) {
+            if !self
+                .available_agents
+                .iter()
+                .any(|a| a.name.eq_ignore_ascii_case(&p.name))
+            {
                 lines.push(format!("- {} ({}): {}", p.name, p.role, p.expertise));
             }
         }
@@ -141,10 +153,7 @@ impl DelegateWorkTool {
                 history_length: None,
             })
             .await?;
-        Ok(format!(
-            "Task {} — state: {:?}",
-            task.id, task.status.state
-        ))
+        Ok(format!("Task {} — state: {:?}", task.id, task.status.state))
     }
 }
 
@@ -168,7 +177,11 @@ impl Tool for DelegateWorkTool {
                 .map(|a| Value::String(a.name.clone()))
                 .collect();
             for p in crate::peers::list() {
-                if !self.available_agents.iter().any(|a| a.name.eq_ignore_ascii_case(&p.name)) {
+                if !self
+                    .available_agents
+                    .iter()
+                    .any(|a| a.name.eq_ignore_ascii_case(&p.name))
+                {
                     names.push(Value::String(p.name.clone()));
                 }
             }
@@ -245,7 +258,8 @@ impl Tool for DelegateWorkTool {
                             agent.name,
                             e
                         );
-                        let result = (agent.executor)(task_desc.to_string(), context.to_string()).await?;
+                        let result =
+                            (agent.executor)(task_desc.to_string(), context.to_string()).await?;
                         Ok(format!("[{} completed task]\n{}", agent.name, result))
                     }
                 }
@@ -312,7 +326,9 @@ pub struct AskQuestionTool {
 impl AskQuestionTool {
     /// Create a new `AskQuestionTool` with the given list of available agents.
     pub fn new(agents: Vec<AgentInfo>) -> Self {
-        Self { available_agents: agents }
+        Self {
+            available_agents: agents,
+        }
     }
 
     fn find_agent(&self, name: &str) -> Option<&AgentInfo> {
@@ -329,7 +345,11 @@ impl AskQuestionTool {
             .collect();
         // Merge dynamically-registered peers (peer tool / peers.json).
         for p in crate::peers::list() {
-            if !self.available_agents.iter().any(|a| a.name.eq_ignore_ascii_case(&p.name)) {
+            if !self
+                .available_agents
+                .iter()
+                .any(|a| a.name.eq_ignore_ascii_case(&p.name))
+            {
                 lines.push(format!("- {} ({}): {}", p.name, p.role, p.expertise));
             }
         }
@@ -357,7 +377,11 @@ impl Tool for AskQuestionTool {
                 .map(|a| Value::String(a.name.clone()))
                 .collect();
             for p in crate::peers::list() {
-                if !self.available_agents.iter().any(|a| a.name.eq_ignore_ascii_case(&p.name)) {
+                if !self
+                    .available_agents
+                    .iter()
+                    .any(|a| a.name.eq_ignore_ascii_case(&p.name))
+                {
                     names.push(Value::String(p.name.clone()));
                 }
             }
@@ -408,7 +432,9 @@ impl Tool for AskQuestionTool {
                 let text = if context.is_empty() {
                     format!("Please answer this question concisely: {question}")
                 } else {
-                    format!("Context: {context}\n\nPlease answer this question concisely: {question}")
+                    format!(
+                        "Context: {context}\n\nPlease answer this question concisely: {question}"
+                    )
                 };
                 let params = TaskSendParams {
                     id: None,
@@ -436,7 +462,9 @@ impl Tool for AskQuestionTool {
                                     _ => None,
                                 })
                             })
-                            .unwrap_or_else(|| format!("(submitted, state={:?})", task.status.state));
+                            .unwrap_or_else(|| {
+                                format!("(submitted, state={:?})", task.status.state)
+                            });
                         Ok(format!("[{} answers]\n{}", peer.name, ans))
                     }
                     Err(e) => Ok(format!("[{}] A2A ask failed: {e}", peer.name)),
@@ -444,9 +472,12 @@ impl Tool for AskQuestionTool {
             }
         }
 
-        let agent = self
-            .find_agent(coworker)
-            .ok_or_else(|| anyhow!("Unknown coworker '{coworker}'. Available: {}", self.agent_list()))?;
+        let agent = self.find_agent(coworker).ok_or_else(|| {
+            anyhow!(
+                "Unknown coworker '{coworker}'. Available: {}",
+                self.agent_list()
+            )
+        })?;
 
         // If agent has a URL, use A2AClient streaming; otherwise fall back to executor
         if !agent.url.is_empty() {
@@ -487,7 +518,10 @@ impl Tool for AskQuestionTool {
                                 if let Some(msg) = &ev.status.message {
                                     for part in &msg.parts {
                                         if let Part::Text { text } = part {
-                                            return Ok(format!("[{} answers]\n{}", agent.name, text));
+                                            return Ok(format!(
+                                                "[{} answers]\n{}",
+                                                agent.name, text
+                                            ));
                                         }
                                     }
                                 }
@@ -735,7 +769,9 @@ impl Default for GuardrailChain {
 impl GuardrailChain {
     /// Create an empty guardrail chain.
     pub fn new() -> Self {
-        Self { validators: Vec::new() }
+        Self {
+            validators: Vec::new(),
+        }
     }
 
     /// Append a validator to the chain. All validators must pass for the chain to pass.
@@ -830,7 +866,10 @@ mod tests {
         let tool = DelegateWorkTool::new(vec![stub_agent("Alice")]);
         let ctx = make_ctx();
         let result = tool
-            .execute(json!({"coworker": "Alice", "task": "write tests", "context": "Rust project"}), &ctx)
+            .execute(
+                json!({"coworker": "Alice", "task": "write tests", "context": "Rust project"}),
+                &ctx,
+            )
             .await
             .unwrap();
         assert!(result.contains("Alice"));
@@ -866,9 +905,15 @@ mod tests {
         struct EchoTool;
         #[async_trait]
         impl Tool for EchoTool {
-            fn name(&self) -> &str { "echo" }
-            fn description(&self) -> &str { "echo" }
-            fn parameters(&self) -> Value { json!({}) }
+            fn name(&self) -> &str {
+                "echo"
+            }
+            fn description(&self) -> &str {
+                "echo"
+            }
+            fn parameters(&self) -> Value {
+                json!({})
+            }
             async fn execute(&self, _args: Value, _ctx: &ToolContext<'_>) -> Result<String> {
                 Ok("ok".to_string())
             }
@@ -888,9 +933,15 @@ mod tests {
         struct EchoTool;
         #[async_trait]
         impl Tool for EchoTool {
-            fn name(&self) -> &str { "echo" }
-            fn description(&self) -> &str { "echo" }
-            fn parameters(&self) -> Value { json!({}) }
+            fn name(&self) -> &str {
+                "echo"
+            }
+            fn description(&self) -> &str {
+                "echo"
+            }
+            fn parameters(&self) -> Value {
+                json!({})
+            }
             async fn execute(&self, _args: Value, _ctx: &ToolContext<'_>) -> Result<String> {
                 Ok("42".to_string())
             }
@@ -909,13 +960,21 @@ mod tests {
             if output.contains("good") {
                 GuardrailResult::Pass
             } else {
-                GuardrailResult::Fail { reason: "missing 'good'".to_string() }
+                GuardrailResult::Fail {
+                    reason: "missing 'good'".to_string(),
+                }
             }
         });
         let mut attempts = 0u32;
         let result = execute_with_guardrail(&g, |_feedback| {
             attempts += 1;
-            async move { Ok(if attempts >= 2 { "good output".to_string() } else { "bad".to_string() }) }
+            async move {
+                Ok(if attempts >= 2 {
+                    "good output".to_string()
+                } else {
+                    "bad".to_string()
+                })
+            }
         })
         .await;
         assert!(result.is_ok());
@@ -924,18 +983,18 @@ mod tests {
 
     #[tokio::test]
     async fn guardrail_exhausted() {
-        let g = FnGuardrail::new(2, |_| GuardrailResult::Fail { reason: "always fails".to_string() });
+        let g = FnGuardrail::new(2, |_| GuardrailResult::Fail {
+            reason: "always fails".to_string(),
+        });
         let result = execute_with_guardrail(&g, |_| async move { Ok("bad".to_string()) }).await;
         assert!(result.is_err());
     }
 
     #[test]
     fn conditional_task_skip() {
-        let task = ConditionalTask::new(
-            "deploy",
-            "Deploy to production",
-            |output| output.contains("tests passed"),
-        );
+        let task = ConditionalTask::new("deploy", "Deploy to production", |output| {
+            output.contains("tests passed")
+        });
         assert!(!task.should_execute("tests failed"));
         assert!(task.should_execute("all tests passed successfully"));
     }
@@ -944,13 +1003,34 @@ mod tests {
     fn guardrail_chain() {
         let chain = GuardrailChain::new()
             .push(FnGuardrail::new(0, |o| {
-                if o.len() > 5 { GuardrailResult::Pass } else { GuardrailResult::Fail { reason: "too short".into() } }
+                if o.len() > 5 {
+                    GuardrailResult::Pass
+                } else {
+                    GuardrailResult::Fail {
+                        reason: "too short".into(),
+                    }
+                }
             }))
             .push(FnGuardrail::new(0, |o| {
-                if o.contains("ok") { GuardrailResult::Pass } else { GuardrailResult::Fail { reason: "missing ok".into() } }
+                if o.contains("ok") {
+                    GuardrailResult::Pass
+                } else {
+                    GuardrailResult::Fail {
+                        reason: "missing ok".into(),
+                    }
+                }
             }));
-        assert!(matches!(chain.validate("this is ok"), GuardrailResult::Pass));
-        assert!(matches!(chain.validate("nope"), GuardrailResult::Fail { .. }));
-        assert!(matches!(chain.validate("this is bad"), GuardrailResult::Fail { .. }));
+        assert!(matches!(
+            chain.validate("this is ok"),
+            GuardrailResult::Pass
+        ));
+        assert!(matches!(
+            chain.validate("nope"),
+            GuardrailResult::Fail { .. }
+        ));
+        assert!(matches!(
+            chain.validate("this is bad"),
+            GuardrailResult::Fail { .. }
+        ));
     }
 }

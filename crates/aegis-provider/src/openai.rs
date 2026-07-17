@@ -188,7 +188,9 @@ impl OpenAiProvider {
                 retry_after_secs: Some(wait.as_secs()),
             };
         }
-        ProviderError::RateLimit { retry_after_secs: None }
+        ProviderError::RateLimit {
+            retry_after_secs: None,
+        }
     }
 
     fn build_body(&self, messages: &[Message], tools: Option<&Value>, stream: bool) -> Value {
@@ -301,7 +303,9 @@ impl OpenAiProvider {
                 let headers = resp.headers().clone();
                 let text = resp.text().await.unwrap_or_default();
                 if status.as_u16() == 401 {
-                    anyhow::bail!("API key unauthorized (401). Please check your API key configuration.");
+                    anyhow::bail!(
+                        "API key unauthorized (401). Please check your API key configuration."
+                    );
                 }
                 if is_rate_limited(status.as_u16()) {
                     if attempt < self.max_retries {
@@ -431,9 +435,9 @@ fn minimax_outcome_to_error(
                 retry_after_secs: Some(wait.as_secs()),
             })
         }
-        MiniMaxOutcome::TransientRateLimit { .. } => {
-            Some(ProviderError::RateLimit { retry_after_secs: None })
-        }
+        MiniMaxOutcome::TransientRateLimit { .. } => Some(ProviderError::RateLimit {
+            retry_after_secs: None,
+        }),
         MiniMaxOutcome::InsufficientBalance => Some(ProviderError::InsufficientBalance),
         MiniMaxOutcome::TransientServer { code } => Some(ProviderError::Server {
             status: 200,
@@ -505,7 +509,9 @@ impl Provider for OpenAiProvider {
 
         if !status.is_success() {
             if status.as_u16() == 401 {
-                anyhow::bail!("API key unauthorized (401). Please check your API key configuration.");
+                anyhow::bail!(
+                    "API key unauthorized (401). Please check your API key configuration."
+                );
             }
             if is_rate_limited(status.as_u16()) {
                 anyhow::bail!(self.rate_limit_error(&headers, &text));
@@ -572,7 +578,9 @@ impl Provider for OpenAiProvider {
                 let next = tokio::time::timeout(stall_timeout, byte_stream.next()).await;
                 let chunk = match next {
                     Err(_) => {
-                        let _ = tx.send(Err(anyhow::anyhow!("stream stall: no data for 30s"))).await;
+                        let _ = tx
+                            .send(Err(anyhow::anyhow!("stream stall: no data for 30s")))
+                            .await;
                         return;
                     }
                     Ok(None) => break,
@@ -598,10 +606,16 @@ impl Provider for OpenAiProvider {
                             if !tag_buf.is_empty() {
                                 if in_think {
                                     reasoning.push_str(&tag_buf);
-                                    let _ = tx.send(Ok(StreamEvent::Reasoning(std::mem::take(&mut tag_buf)))).await;
+                                    let _ = tx
+                                        .send(Ok(StreamEvent::Reasoning(std::mem::take(
+                                            &mut tag_buf,
+                                        ))))
+                                        .await;
                                 } else {
                                     content.push_str(&tag_buf);
-                                    let _ = tx.send(Ok(StreamEvent::Delta(std::mem::take(&mut tag_buf)))).await;
+                                    let _ = tx
+                                        .send(Ok(StreamEvent::Delta(std::mem::take(&mut tag_buf))))
+                                        .await;
                                 }
                             }
                             // Emit Done and exit
@@ -678,7 +692,11 @@ impl Provider for OpenAiProvider {
                                         let thinking = &tag_buf[..end];
                                         if !thinking.is_empty() {
                                             reasoning.push_str(thinking);
-                                            let _ = tx.send(Ok(StreamEvent::Reasoning(thinking.to_string()))).await;
+                                            let _ = tx
+                                                .send(Ok(StreamEvent::Reasoning(
+                                                    thinking.to_string(),
+                                                )))
+                                                .await;
                                         }
                                         tag_buf = tag_buf[end + "</think>".len()..].to_string();
                                         in_think = false;
@@ -693,14 +711,20 @@ impl Provider for OpenAiProvider {
                                         break;
                                     } else {
                                         reasoning.push_str(&tag_buf);
-                                        let _ = tx.send(Ok(StreamEvent::Reasoning(std::mem::take(&mut tag_buf)))).await;
+                                        let _ = tx
+                                            .send(Ok(StreamEvent::Reasoning(std::mem::take(
+                                                &mut tag_buf,
+                                            ))))
+                                            .await;
                                     }
                                 } else {
                                     if let Some(start) = tag_buf.find("<think>") {
                                         let before = &tag_buf[..start];
                                         if !before.is_empty() {
                                             content.push_str(before);
-                                            let _ = tx.send(Ok(StreamEvent::Delta(before.to_string()))).await;
+                                            let _ = tx
+                                                .send(Ok(StreamEvent::Delta(before.to_string())))
+                                                .await;
                                         }
                                         tag_buf = tag_buf[start + "<think>".len()..].to_string();
                                         in_think = true;
@@ -714,7 +738,11 @@ impl Provider for OpenAiProvider {
                                         break;
                                     } else {
                                         content.push_str(&tag_buf);
-                                        let _ = tx.send(Ok(StreamEvent::Delta(std::mem::take(&mut tag_buf)))).await;
+                                        let _ = tx
+                                            .send(Ok(StreamEvent::Delta(std::mem::take(
+                                                &mut tag_buf,
+                                            ))))
+                                            .await;
                                     }
                                 }
                             }
@@ -773,10 +801,14 @@ impl Provider for OpenAiProvider {
             if !tag_buf.is_empty() {
                 if in_think {
                     reasoning.push_str(&tag_buf);
-                    let _ = tx.send(Ok(StreamEvent::Reasoning(std::mem::take(&mut tag_buf)))).await;
+                    let _ = tx
+                        .send(Ok(StreamEvent::Reasoning(std::mem::take(&mut tag_buf))))
+                        .await;
                 } else {
                     content.push_str(&tag_buf);
-                    let _ = tx.send(Ok(StreamEvent::Delta(std::mem::take(&mut tag_buf)))).await;
+                    let _ = tx
+                        .send(Ok(StreamEvent::Delta(std::mem::take(&mut tag_buf))))
+                        .await;
                 }
             }
 
@@ -825,7 +857,6 @@ impl Provider for OpenAiProvider {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -864,7 +895,10 @@ mod tests {
             } => {
                 assert!(s > 0, "computed window wait must be positive");
                 // Boundaries are at most 5h apart; allow the 30s safety margin.
-                assert!(s <= 5 * 3600 + 60, "wait must be within one 5h window + margin");
+                assert!(
+                    s <= 5 * 3600 + 60,
+                    "wait must be within one 5h window + margin"
+                );
             }
             other => panic!("expected QuotaExhausted, got {other:?}"),
         }
@@ -902,7 +936,10 @@ mod tests {
         let body = r#"{"base_resp":{"status_code":1008,"status_msg":"insufficient balance"}}"#;
         let err = p.rate_limit_error(&HeaderMap::new(), body);
         assert!(matches!(err, ProviderError::InsufficientBalance));
-        assert!(!err.is_retryable(), "insufficient balance must not be retryable");
+        assert!(
+            !err.is_retryable(),
+            "insufficient balance must not be retryable"
+        );
     }
 
     #[test]

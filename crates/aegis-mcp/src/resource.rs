@@ -47,7 +47,11 @@ impl ResourceProvider for FileResourceProvider {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.extension().and_then(|e| e.to_str()) == Some("md") {
-                    let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    let name = path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string();
                     let uri = format!("file://{}", path.display());
                     resources.push(ResourceDefinition {
                         uri,

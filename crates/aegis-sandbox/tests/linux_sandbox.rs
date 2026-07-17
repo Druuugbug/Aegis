@@ -38,7 +38,10 @@ fn deny_all_refuses_to_spawn() {
     let cmd = SandboxCommand::new("true");
     let err = runner.spawn(cmd, &policy).unwrap_err();
     let msg = format!("{err:?}");
-    assert!(msg.contains("deny_all") || msg.contains("InvalidPolicy"), "got: {msg}");
+    assert!(
+        msg.contains("deny_all") || msg.contains("InvalidPolicy"),
+        "got: {msg}"
+    );
 }
 
 #[test]
@@ -172,8 +175,8 @@ fn network_ns_blocks_external_connect() {
     }
     let workdir = tempfile::tempdir().expect("tempdir");
     let policy = presets::compute_workdir(workdir.path()); // no network
-    // Try to connect to a well-known host. In network_ns, there's no route
-    // out — expect failure.
+                                                           // Try to connect to a well-known host. In network_ns, there's no route
+                                                           // out — expect failure.
     let cmd = SandboxCommand::new("sh")
         .arg("-c")
         .arg("getent hosts example.com 2>&1 && echo LEAKED || echo NET_BLOCKED");
@@ -201,9 +204,9 @@ fn network_readonly_preserves_host_network() {
     // that the syscall isn't blocked by seccomp/network_ns.
     // We verify by checking the getent call doesn't hit an EPERM syscall
     // error. Just running successfully with no seccomp EPERM is enough.
-    let cmd = SandboxCommand::new("sh").arg("-c").arg(
-        "getent hosts localhost 2>&1 | head -1 || echo LOCALHOST_UNREACHABLE",
-    );
+    let cmd = SandboxCommand::new("sh")
+        .arg("-c")
+        .arg("getent hosts localhost 2>&1 | head -1 || echo LOCALHOST_UNREACHABLE");
     let child = runner.spawn(cmd, &policy).expect("spawn");
     let _out = child.wait_with_output().expect("wait");
     // No assertion here — we just want to prove it doesn't hang / crash.

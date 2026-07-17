@@ -116,7 +116,10 @@ pub fn put(args: &[String]) -> i32 {
     for p in paths {
         let abs = absolutize(p);
         if is_protected(&abs) {
-            eprintln!("aegis trash: refusing to trash protected path: {}", abs.display());
+            eprintln!(
+                "aegis trash: refusing to trash protected path: {}",
+                abs.display()
+            );
             had_err = true;
             continue;
         }
@@ -128,7 +131,10 @@ pub fn put(args: &[String]) -> i32 {
         let id = next_id();
         let entry = trash_dir().join(&id);
         if std::fs::create_dir_all(&entry).is_err() {
-            eprintln!("aegis trash: cannot create trash entry for {}", abs.display());
+            eprintln!(
+                "aegis trash: cannot create trash entry for {}",
+                abs.display()
+            );
             had_err = true;
             continue;
         }
@@ -255,14 +261,29 @@ fn read_entries() -> Vec<Entry> {
             .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
         {
             Some(v) => (
-                v.get("original").and_then(|x| x.as_str()).unwrap_or("?").to_string(),
-                v.get("trashed_at").and_then(|x| x.as_str()).unwrap_or("?").to_string(),
-                v.get("session").and_then(|x| x.as_str()).unwrap_or("unknown").to_string(),
+                v.get("original")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("?")
+                    .to_string(),
+                v.get("trashed_at")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("?")
+                    .to_string(),
+                v.get("session")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("unknown")
+                    .to_string(),
                 v.get("bytes").and_then(|x| x.as_u64()).unwrap_or(0),
             ),
             None => ("?".to_string(), "?".to_string(), "unknown".to_string(), 0),
         };
-        out.push(Entry { id, original, trashed_at, session, bytes });
+        out.push(Entry {
+            id,
+            original,
+            trashed_at,
+            session,
+            bytes,
+        });
     }
     out.sort_by(|a, b| a.id.cmp(&b.id));
     out
@@ -324,9 +345,7 @@ pub fn run_trash(action: TrashAction) -> Result<()> {
                     e.original
                 );
             }
-            println!(
-                "  restore: aegis trash restore <id> | all | --session <id>"
-            );
+            println!("  restore: aegis trash restore <id> | all | --session <id>");
         }
         TrashAction::Restore { id, session } => {
             let entries = read_entries();

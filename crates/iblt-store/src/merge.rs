@@ -17,8 +17,6 @@ pub enum MergeStrategy {
     KeepBoth,
 }
 
-
-
 /// Merge result for a single key.
 #[derive(Debug, Clone)]
 pub enum MergeResult {
@@ -90,11 +88,7 @@ impl MergeEngine {
     }
 
     /// Merge entries into a BTreeMap, resolving conflicts.
-    pub fn merge_into_map(
-        &mut self,
-        target: &mut BTreeMap<Vec<u8>, Entry>,
-        source: &[Entry],
-    ) {
+    pub fn merge_into_map(&mut self, target: &mut BTreeMap<Vec<u8>, Entry>, source: &[Entry]) {
         self.merge_count += 1;
         for entry in source {
             let key = entry.key.as_bytes().to_vec();

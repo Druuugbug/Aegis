@@ -3,7 +3,7 @@
 //! Provides the inverse of the compression pipeline, handling
 //! format detection and transparent decompression.
 
-use crate::compress::{Algorithm, decompress};
+use crate::compress::{decompress, Algorithm};
 use crate::types::StoreError;
 
 /// Magic bytes header for compressed data.

@@ -383,9 +383,9 @@ impl DagExecutor {
                 let runner_ref = runner.clone();
                 let id_owned = id.clone();
                 let handle = tokio::spawn(async move {
-                    runner_ref(prompt, upstream).await.map_err(move |e| {
-                        anyhow::anyhow!("task '{}' failed: {}", id_owned, e)
-                    })
+                    runner_ref(prompt, upstream)
+                        .await
+                        .map_err(move |e| anyhow::anyhow!("task '{}' failed: {}", id_owned, e))
                 });
                 handles.push((id.clone(), handle));
             }
@@ -464,11 +464,7 @@ impl DagExecutor {
         let mut completed: HashMap<TaskId, String> = HashMap::new();
 
         loop {
-            let ready: Vec<TaskId> = vdag
-                .next_runnable()
-                .iter()
-                .map(|t| t.id.clone())
-                .collect();
+            let ready: Vec<TaskId> = vdag.next_runnable().iter().map(|t| t.id.clone()).collect();
 
             if ready.is_empty() {
                 if vdag.is_complete() {
@@ -558,10 +554,22 @@ mod tests {
         dag.add_task("c", "do c", vec!["a"]);
         dag.add_task("d", "do d", vec!["b", "c"]);
         let order = dag.topo_order().unwrap();
-        assert!(order.iter().position(|x| x == "a").unwrap() < order.iter().position(|x| x == "b").unwrap());
-        assert!(order.iter().position(|x| x == "a").unwrap() < order.iter().position(|x| x == "c").unwrap());
-        assert!(order.iter().position(|x| x == "b").unwrap() < order.iter().position(|x| x == "d").unwrap());
-        assert!(order.iter().position(|x| x == "c").unwrap() < order.iter().position(|x| x == "d").unwrap());
+        assert!(
+            order.iter().position(|x| x == "a").unwrap()
+                < order.iter().position(|x| x == "b").unwrap()
+        );
+        assert!(
+            order.iter().position(|x| x == "a").unwrap()
+                < order.iter().position(|x| x == "c").unwrap()
+        );
+        assert!(
+            order.iter().position(|x| x == "b").unwrap()
+                < order.iter().position(|x| x == "d").unwrap()
+        );
+        assert!(
+            order.iter().position(|x| x == "c").unwrap()
+                < order.iter().position(|x| x == "d").unwrap()
+        );
     }
 
     #[test]

@@ -1,30 +1,30 @@
+mod backup;
 mod browser_bridge_adapter;
 mod callbacks;
 mod chat;
 mod cli;
 mod commands;
 mod completer;
+mod connect;
+mod gateway;
+mod logfile;
 mod markdown;
+mod peer;
+mod provider;
 mod reedline_input;
 mod select;
-mod provider;
-mod gateway;
-mod trash;
-mod snapshot;
-mod update;
 mod self_update;
+mod server;
+mod snapshot;
 mod status;
-mod welcome;
-mod usage;
-mod watcher;
-mod logfile;
-mod backup;
-mod connect;
-mod peer;
+mod trash;
 mod tui;
 mod uninstall;
+mod update;
+mod usage;
+mod watcher;
+mod welcome;
 mod worker;
-mod server;
 
 use anyhow::Result;
 use clap::Parser;
@@ -50,7 +50,9 @@ async fn main() -> Result<()> {
     if is_daemon {
         let cfg = aegis_core::config::Config::load(&aegis_core::config::config_path())
             .unwrap_or_default();
-        let log_path = aegis_core::config::config_dir().join("logs").join("agent.log");
+        let log_path = aegis_core::config::config_dir()
+            .join("logs")
+            .join("agent.log");
         let max_bytes = cfg.logs.agent_max_mb.saturating_mul(1024 * 1024);
         if let Ok(writer) = logfile::RotatingLog::new(log_path, max_bytes) {
             tracing_subscriber::fmt()
@@ -89,9 +91,12 @@ async fn main() -> Result<()> {
         Some(Commands::Worker { pool_size }) => worker::run(pool_size).await,
         Some(Commands::Serve { host, port }) => server::run(host, port).await,
         Some(Commands::Doctor) => commands::run_doctor(),
-        Some(Commands::Update { force, repo, rollback, yes: _ }) => {
-            self_update::run_update(force, repo, rollback).await
-        }
+        Some(Commands::Update {
+            force,
+            repo,
+            rollback,
+            yes: _,
+        }) => self_update::run_update(force, repo, rollback).await,
         Some(Commands::Status) => commands::run_status(),
         Some(Commands::Logs { lines }) => commands::run_logs(lines),
         Some(Commands::Usage {
@@ -107,17 +112,23 @@ async fn main() -> Result<()> {
         Some(Commands::Watch { action }) => {
             match action {
                 cli::WatchAction::List => {
-                    let config = aegis_core::config::Config::load(&aegis_core::config::config_path())
-                        .unwrap_or_default();
+                    let config =
+                        aegis_core::config::Config::load(&aegis_core::config::config_path())
+                            .unwrap_or_default();
                     watcher::run_watch_list(&config);
                 }
             }
             Ok(())
         }
-        Some(Commands::Audit { lines, session, today }) => {
-            commands::run_audit(lines, session, today)
-        }
-        Some(Commands::Backup { out, include_secrets }) => backup::run_backup(out, include_secrets),
+        Some(Commands::Audit {
+            lines,
+            session,
+            today,
+        }) => commands::run_audit(lines, session, today),
+        Some(Commands::Backup {
+            out,
+            include_secrets,
+        }) => backup::run_backup(out, include_secrets),
         Some(Commands::Restore { path, force }) => backup::run_restore(path, force),
         Some(Commands::Artifacts { json }) => uninstall::run_artifacts(json),
         Some(Commands::Uninstall {
@@ -128,7 +139,15 @@ async fn main() -> Result<()> {
             keep_goals,
             purge,
             dry_run,
-        }) => uninstall::run(yes, keep_memory, keep_skills, keep_sessions, keep_goals, purge, dry_run),
+        }) => uninstall::run(
+            yes,
+            keep_memory,
+            keep_skills,
+            keep_sessions,
+            keep_goals,
+            purge,
+            dry_run,
+        ),
         Some(Commands::Strategy { action }) => commands::run_strategy(action),
         Some(Commands::Skill { action }) => commands::run_skill(action),
         Some(Commands::Dag { action }) => run_dag(action).await,
@@ -140,14 +159,24 @@ async fn main() -> Result<()> {
             commands::run_overnight(mission, wake_at).await
         }
         Some(Commands::Learn { action }) => commands::run_learn(action),
-        Some(Commands::A2a { host, port, model, token, yolo }) => {
-            gateway::run_a2a(model, host, port, token, yolo).await
-        }
-        Some(Commands::Gateway { action, model, yolo, reckless }) => {
+        Some(Commands::A2a {
+            host,
+            port,
+            model,
+            token,
+            yolo,
+        }) => gateway::run_a2a(model, host, port, token, yolo).await,
+        Some(Commands::Gateway {
+            action,
+            model,
+            yolo,
+            reckless,
+        }) => {
             if let Some(action) = action {
                 gateway::run_gateway_admin(action).await
             } else {
-                let mut config = aegis_core::config::Config::load(&aegis_core::config::config_path())?;
+                let mut config =
+                    aegis_core::config::Config::load(&aegis_core::config::config_path())?;
                 if let Some(notice) = config.auto_tune_resources() {
                     eprintln!("🧿 {notice}");
                 }
@@ -201,7 +230,11 @@ async fn run_dag(action: DagAction) -> Result<()> {
             use colored::Colorize;
             eprintln!("{}", "Validating DAG...".cyan());
             executor.validate()?;
-            eprintln!("{} {} tasks, topological order:", "\u{2713}".green(), dag_file.tasks.len());
+            eprintln!(
+                "{} {} tasks, topological order:",
+                "\u{2713}".green(),
+                dag_file.tasks.len()
+            );
             let order = executor.topo_order()?;
             for id in &order {
                 eprintln!("  {} {}", "\u{2192}".dimmed(), id);
@@ -221,14 +254,20 @@ async fn run_dag(action: DagAction) -> Result<()> {
 
             eprintln!("{}", "Executing DAG...".cyan());
 
-            let mut results: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+            let mut results: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
             for id in &order {
                 let task = executor.get_task(id).expect("task exists");
                 let mut prompt = task.prompt.clone();
                 for (k, v) in &results {
                     prompt = prompt.replace(&format!("{{{k}}}"), v);
                 }
-                eprintln!("  {} {}{}", "\u{25b6}".bright_yellow(), id.bright_white(), " running...".dimmed());
+                eprintln!(
+                    "  {} {}{}",
+                    "\u{25b6}".bright_yellow(),
+                    id.bright_white(),
+                    " running...".dimmed()
+                );
                 match agent.chat(&prompt).await {
                     Ok(result) => {
                         let summary = if result.len() > 200 {
@@ -247,7 +286,11 @@ async fn run_dag(action: DagAction) -> Result<()> {
             }
 
             eprintln!();
-            eprintln!("{} All {} tasks completed.", "\u{2713}".green(), order.len());
+            eprintln!(
+                "{} All {} tasks completed.",
+                "\u{2713}".green(),
+                order.len()
+            );
             Ok(())
         }
     }
@@ -262,7 +305,10 @@ async fn run_evolve(target: Option<String>) -> Result<()> {
     if info.success {
         println!("\u{2713} Build succeeded in {}ms", info.build_duration_ms);
         println!("  binary: {}", info.binary_path.display());
-        println!("  source: {} (dirty={})", info.source.fingerprint, info.source.dirty);
+        println!(
+            "  source: {} (dirty={})",
+            info.source.fingerprint, info.source.dirty
+        );
 
         engine.deploy_canary(info.binary_path).await?;
         println!("canary deployed, observing for 300s...");

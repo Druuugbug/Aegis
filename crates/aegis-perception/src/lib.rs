@@ -113,10 +113,16 @@ mod tests {
 
     #[test]
     fn test_event_new() {
-        let source = EventSource::System { kind: "test".into() };
+        let source = EventSource::System {
+            kind: "test".into(),
+        };
         let payload = serde_json::json!({"key": "value"});
         let event = Event::new(source.clone(), Priority::High, payload.clone());
-        assert!(event.id.starts_with("evt-"), "id should start with evt-, got: {}", event.id);
+        assert!(
+            event.id.starts_with("evt-"),
+            "id should start with evt-, got: {}",
+            event.id
+        );
         assert_eq!(event.priority, Priority::High);
         assert_eq!(event.payload, payload);
     }
@@ -124,7 +130,10 @@ mod tests {
     #[test]
     fn test_uuid_short_format() {
         let id = uuid_short();
-        assert!(id.starts_with("evt-"), "uuid_short should start with 'evt-': {id}");
+        assert!(
+            id.starts_with("evt-"),
+            "uuid_short should start with 'evt-': {id}"
+        );
         // evt- prefix + hex timestamp + 4 hex digits for millis
         assert!(id.len() > 4);
     }
@@ -148,7 +157,9 @@ mod tests {
         let mut rx = bus.subscribe();
 
         let event = Event::new(
-            EventSource::System { kind: "ping".into() },
+            EventSource::System {
+                kind: "ping".into(),
+            },
             Priority::Medium,
             serde_json::json!({"msg": "hello"}),
         );
@@ -167,7 +178,9 @@ mod tests {
         let mut rx2 = bus.subscribe();
 
         let event = Event::new(
-            EventSource::User { channel: "slack".into() },
+            EventSource::User {
+                channel: "slack".into(),
+            },
             Priority::Low,
             serde_json::json!(null),
         );
@@ -196,7 +209,9 @@ mod tests {
         let bus = EventBus::default();
         let mut rx = bus.subscribe();
         bus.publish(Event::new(
-            EventSource::Cron { expression: "* * * * *".into() },
+            EventSource::Cron {
+                expression: "* * * * *".into(),
+            },
             Priority::Critical,
             serde_json::json!(null),
         ));
@@ -205,7 +220,9 @@ mod tests {
 
     #[test]
     fn test_event_source_filewatch() {
-        let source = EventSource::FileWatch { path: "/tmp/test.txt".into() };
+        let source = EventSource::FileWatch {
+            path: "/tmp/test.txt".into(),
+        };
         let event = Event::new(source, Priority::Low, serde_json::json!({"changed": true}));
         match &event.source {
             EventSource::FileWatch { path } => assert_eq!(path, "/tmp/test.txt"),
@@ -215,7 +232,9 @@ mod tests {
 
     #[test]
     fn test_event_source_webhook() {
-        let source = EventSource::Webhook { endpoint: "/api/webhook".into() };
+        let source = EventSource::Webhook {
+            endpoint: "/api/webhook".into(),
+        };
         let event = Event::new(source, Priority::High, serde_json::json!({"data": 42}));
         match &event.source {
             EventSource::Webhook { endpoint } => assert_eq!(endpoint, "/api/webhook"),
@@ -227,7 +246,9 @@ mod tests {
     fn test_event_bus_zero_subscriber_count() {
         let bus = EventBus::new(16);
         let event = Event::new(
-            EventSource::System { kind: "ping".into() },
+            EventSource::System {
+                kind: "ping".into(),
+            },
             Priority::Medium,
             serde_json::json!(null),
         );

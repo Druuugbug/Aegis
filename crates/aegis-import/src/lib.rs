@@ -69,7 +69,9 @@ impl ClaudeCodeImporter {
 }
 
 impl SessionImporter for ClaudeCodeImporter {
-    fn name(&self) -> &'static str { "claude-code" }
+    fn name(&self) -> &'static str {
+        "claude-code"
+    }
 
     fn detect(&self, path: &Path) -> bool {
         path.extension().is_some_and(|e| e == "jsonl")
@@ -80,7 +82,9 @@ impl SessionImporter for ClaudeCodeImporter {
         let mut messages = Vec::new();
         for line in content.lines() {
             let line = line.trim();
-            if line.is_empty() { continue; }
+            if line.is_empty() {
+                continue;
+            }
             if let Some(msg) = Self::parse_line(line) {
                 messages.push(msg);
             }
@@ -94,7 +98,9 @@ impl SessionImporter for ClaudeCodeImporter {
         let mut message_count = 0;
         for line in content.lines() {
             let line = line.trim();
-            if line.is_empty() { continue; }
+            if line.is_empty() {
+                continue;
+            }
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
                 if val.get("message").and_then(|m| m.get("role")).is_some() {
                     message_count += 1;
@@ -115,7 +121,11 @@ impl SessionImporter for ClaudeCodeImporter {
                 .unwrap_or_else(|_| Utc::now())
         });
         Ok(SessionMeta {
-            title: path.file_stem().unwrap_or_default().to_string_lossy().to_string(),
+            title: path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string(),
             created_at,
             model: "claude".to_string(),
             message_count,
@@ -129,11 +139,12 @@ impl SessionImporter for ClaudeCodeImporter {
 pub struct CodexImporter;
 
 impl SessionImporter for CodexImporter {
-    fn name(&self) -> &'static str { "codex" }
+    fn name(&self) -> &'static str {
+        "codex"
+    }
 
     fn detect(&self, path: &Path) -> bool {
-        path.extension().is_some_and(|e| e == "json")
-            && path.to_string_lossy().contains("codex")
+        path.extension().is_some_and(|e| e == "json") && path.to_string_lossy().contains("codex")
     }
 
     fn parse(&self, path: &Path) -> Result<Vec<Message>> {
@@ -155,14 +166,32 @@ impl SessionImporter for CodexImporter {
     fn metadata(&self, path: &Path) -> Result<SessionMeta> {
         let content = std::fs::read_to_string(path)?;
         let val: serde_json::Value = serde_json::from_str(&content)?;
-        let title = val.get("title").and_then(|v| v.as_str()).unwrap_or("untitled").to_string();
-        let model = val.get("model").and_then(|v| v.as_str()).unwrap_or("codex").to_string();
-        let message_count = val.get("messages").and_then(|v| v.as_array()).map_or(0, |a| a.len());
+        let title = val
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("untitled")
+            .to_string();
+        let model = val
+            .get("model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("codex")
+            .to_string();
+        let message_count = val
+            .get("messages")
+            .and_then(|v| v.as_array())
+            .map_or(0, |a| a.len());
         let meta = std::fs::metadata(path)?;
-        let created_at = meta.modified()
+        let created_at = meta
+            .modified()
             .map(DateTime::<Utc>::from)
             .unwrap_or_else(|_| Utc::now());
-        Ok(SessionMeta { title, created_at, model, message_count, source: "codex".to_string() })
+        Ok(SessionMeta {
+            title,
+            created_at,
+            model,
+            message_count,
+            source: "codex".to_string(),
+        })
     }
 }
 
@@ -171,11 +200,12 @@ impl SessionImporter for CodexImporter {
 pub struct OpenCodeImporter;
 
 impl SessionImporter for OpenCodeImporter {
-    fn name(&self) -> &'static str { "opencode" }
+    fn name(&self) -> &'static str {
+        "opencode"
+    }
 
     fn detect(&self, path: &Path) -> bool {
-        path.extension().is_some_and(|e| e == "json")
-            && path.to_string_lossy().contains("opencode")
+        path.extension().is_some_and(|e| e == "json") && path.to_string_lossy().contains("opencode")
     }
 
     fn parse(&self, path: &Path) -> Result<Vec<Message>> {
@@ -197,14 +227,32 @@ impl SessionImporter for OpenCodeImporter {
     fn metadata(&self, path: &Path) -> Result<SessionMeta> {
         let content = std::fs::read_to_string(path)?;
         let val: serde_json::Value = serde_json::from_str(&content)?;
-        let title = val.get("title").and_then(|v| v.as_str()).unwrap_or("untitled").to_string();
-        let model = val.get("model").and_then(|v| v.as_str()).unwrap_or("opencode").to_string();
-        let message_count = val.get("messages").and_then(|v| v.as_array()).map_or(0, |a| a.len());
+        let title = val
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("untitled")
+            .to_string();
+        let model = val
+            .get("model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("opencode")
+            .to_string();
+        let message_count = val
+            .get("messages")
+            .and_then(|v| v.as_array())
+            .map_or(0, |a| a.len());
         let meta = std::fs::metadata(path)?;
-        let created_at = meta.modified()
+        let created_at = meta
+            .modified()
             .map(DateTime::<Utc>::from)
             .unwrap_or_else(|_| Utc::now());
-        Ok(SessionMeta { title, created_at, model, message_count, source: "opencode".to_string() })
+        Ok(SessionMeta {
+            title,
+            created_at,
+            model,
+            message_count,
+            source: "opencode".to_string(),
+        })
     }
 }
 
@@ -228,12 +276,16 @@ impl ImportRegistry {
 
     /// Detects whether the given path matches a known session format.
     pub fn detect(&self, path: &Path) -> Option<&dyn SessionImporter> {
-        self.importers.iter().find(|i| i.detect(path)).map(|i| i.as_ref())
+        self.importers
+            .iter()
+            .find(|i| i.detect(path))
+            .map(|i| i.as_ref())
     }
 
     /// Imports session data from the given path.
     pub fn import(&self, path: &Path) -> Result<(Vec<Message>, SessionMeta)> {
-        let importer = self.detect(path)
+        let importer = self
+            .detect(path)
             .ok_or_else(|| anyhow::anyhow!("no importer detected for {:?}", path))?;
         let messages = importer.parse(path)?;
         let meta = importer.metadata(path)?;
@@ -247,7 +299,9 @@ impl ImportRegistry {
 }
 
 impl Default for ImportRegistry {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ── Import Engine ──
@@ -403,7 +457,9 @@ impl ImportEngine {
 }
 
 impl Default for ImportEngine {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Normalize imported messages: filter empty, fix roles.
@@ -477,7 +533,9 @@ mod tests {
         let registry = ImportRegistry::new();
         assert!(registry.detect(Path::new("session.jsonl")).is_some());
         assert!(registry.detect(Path::new("codex-session.json")).is_some());
-        assert!(registry.detect(Path::new("opencode-session.json")).is_some());
+        assert!(registry
+            .detect(Path::new("opencode-session.json"))
+            .is_some());
         assert!(registry.detect(Path::new("random.txt")).is_none());
     }
 

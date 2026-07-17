@@ -29,16 +29,18 @@ fn resolve_range(
     if since.is_some() || until.is_some() {
         let from = match &since {
             Some(s) => {
-                let d = NaiveDate::parse_from_str(s.trim(), "%Y-%m-%d")
-                    .map_err(|_| anyhow::anyhow!("invalid --since date '{s}', expected YYYY-MM-DD"))?;
+                let d = NaiveDate::parse_from_str(s.trim(), "%Y-%m-%d").map_err(|_| {
+                    anyhow::anyhow!("invalid --since date '{s}', expected YYYY-MM-DD")
+                })?;
                 local_date_midnight_utc(d)
             }
             None => None,
         };
         let to = match &until {
             Some(u) => {
-                let d = NaiveDate::parse_from_str(u.trim(), "%Y-%m-%d")
-                    .map_err(|_| anyhow::anyhow!("invalid --until date '{u}', expected YYYY-MM-DD"))?;
+                let d = NaiveDate::parse_from_str(u.trim(), "%Y-%m-%d").map_err(|_| {
+                    anyhow::anyhow!("invalid --until date '{u}', expected YYYY-MM-DD")
+                })?;
                 // Inclusive of the until day: upper bound = next day 00:00.
                 local_date_midnight_utc(d + Duration::days(1))
             }
@@ -106,7 +108,10 @@ pub fn run_usage(
 ) -> Result<()> {
     let (from, to, label) = resolve_range(today, week, month, days, since, until)?;
     let store = crate::provider::open_store()?;
-    print!("{}", build_report(&store, &from, &to, &label, by_day, by_model)?);
+    print!(
+        "{}",
+        build_report(&store, &from, &to, &label, by_day, by_model)?
+    );
     Ok(())
 }
 
@@ -142,7 +147,12 @@ pub fn build_report(
                 let _ = writeln!(out, "  (no usage recorded in this period)");
             }
         } else {
-            let w = rows.iter().map(|r| r.bucket.len()).max().unwrap_or(10).clamp(10, 40);
+            let w = rows
+                .iter()
+                .map(|r| r.bucket.len())
+                .max()
+                .unwrap_or(10)
+                .clamp(10, 40);
             for r in &rows {
                 let _ = writeln!(out, "{}", fmt_row(w, r));
             }

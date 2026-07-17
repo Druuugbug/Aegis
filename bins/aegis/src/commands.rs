@@ -483,8 +483,8 @@ pub fn run_audit(lines: u32, session: Option<String>, today: bool) -> Result<()>
             continue;
         }
         let appr = match v["approved"].as_bool() {
-            Some(true) => "approved",
-            Some(false) => "denied",
+            Some(true) => "preapproved",
+            Some(false) => "manual",
             None => "-",
         };
         let d: String = detail.chars().take(120).collect();

@@ -24,19 +24,11 @@ pub struct LedgerEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum LedgerOp {
     /// Insert or update.
-    Put {
-        key: Vec<u8>,
-        value_len: u64,
-    },
+    Put { key: Vec<u8>, value_len: u64 },
     /// Delete.
-    Delete {
-        key: Vec<u8>,
-        value_len: u64,
-    },
+    Delete { key: Vec<u8>, value_len: u64 },
     /// Bulk operation.
-    Batch {
-        count: u32,
-    },
+    Batch { count: u32 },
 }
 
 /// Storage operation ledger.

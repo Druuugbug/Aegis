@@ -51,8 +51,8 @@ impl PeerTrustDb {
         if !path.exists() {
             return Ok(Self::default());
         }
-        let text = std::fs::read_to_string(path)
-            .with_context(|| format!("reading {}", path.display()))?;
+        let text =
+            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         toml::from_str::<Self>(&text).with_context(|| format!("parsing {}", path.display()))
     }
 
@@ -66,8 +66,7 @@ impl PeerTrustDb {
         let tmp = path.with_extension("toml.tmp");
         std::fs::write(&tmp, text.as_bytes())
             .with_context(|| format!("writing tmp {}", tmp.display()))?;
-        std::fs::rename(&tmp, path)
-            .with_context(|| format!("renaming into {}", path.display()))?;
+        std::fs::rename(&tmp, path).with_context(|| format!("renaming into {}", path.display()))?;
         Ok(())
     }
 

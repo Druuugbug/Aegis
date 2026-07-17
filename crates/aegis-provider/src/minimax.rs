@@ -147,7 +147,10 @@ mod tests {
     #[test]
     fn insufficient_balance_1008() {
         let body = r#"{"base_resp":{"status_code":1008,"status_msg":"insufficient balance"}}"#;
-        assert_eq!(classify_body(body), Some(MiniMaxOutcome::InsufficientBalance));
+        assert_eq!(
+            classify_body(body),
+            Some(MiniMaxOutcome::InsufficientBalance)
+        );
     }
 
     #[test]

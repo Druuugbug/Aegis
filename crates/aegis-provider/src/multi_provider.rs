@@ -16,7 +16,10 @@ pub struct FallbackProvider {
 impl FallbackProvider {
     /// Creates a new `instance`.
     pub fn new(providers: Vec<Box<dyn Provider>>) -> Self {
-        assert!(!providers.is_empty(), "FallbackProvider requires at least one provider");
+        assert!(
+            !providers.is_empty(),
+            "FallbackProvider requires at least one provider"
+        );
         let max_retries = providers.len();
         Self {
             providers,
@@ -99,7 +102,10 @@ pub struct RoundRobinProvider {
 impl RoundRobinProvider {
     /// Creates a new `instance`.
     pub fn new(providers: Vec<Box<dyn Provider>>) -> Self {
-        assert!(!providers.is_empty(), "RoundRobinProvider requires at least one provider");
+        assert!(
+            !providers.is_empty(),
+            "RoundRobinProvider requires at least one provider"
+        );
         Self {
             providers,
             current: AtomicUsize::new(0),
@@ -203,8 +209,14 @@ mod tests {
     #[tokio::test]
     async fn fallback_uses_first_provider_when_healthy() {
         let fp = FallbackProvider::new(vec![
-            Box::new(MockProvider { id: "a", fail: false }),
-            Box::new(MockProvider { id: "b", fail: false }),
+            Box::new(MockProvider {
+                id: "a",
+                fail: false,
+            }),
+            Box::new(MockProvider {
+                id: "b",
+                fail: false,
+            }),
         ]);
         let r = fp.chat(&msgs(), None).await.unwrap();
         assert_eq!(resp_name(&r), "a");
@@ -213,8 +225,14 @@ mod tests {
     #[tokio::test]
     async fn fallback_rotates_on_failure() {
         let fp = FallbackProvider::new(vec![
-            Box::new(MockProvider { id: "a", fail: true }),
-            Box::new(MockProvider { id: "b", fail: false }),
+            Box::new(MockProvider {
+                id: "a",
+                fail: true,
+            }),
+            Box::new(MockProvider {
+                id: "b",
+                fail: false,
+            }),
         ]);
         let r = fp.chat(&msgs(), None).await.unwrap();
         assert_eq!(resp_name(&r), "b");
@@ -223,9 +241,18 @@ mod tests {
     #[tokio::test]
     async fn fallback_sticky_routing() {
         let fp = FallbackProvider::new(vec![
-            Box::new(MockProvider { id: "a", fail: true }),
-            Box::new(MockProvider { id: "b", fail: false }),
-            Box::new(MockProvider { id: "c", fail: false }),
+            Box::new(MockProvider {
+                id: "a",
+                fail: true,
+            }),
+            Box::new(MockProvider {
+                id: "b",
+                fail: false,
+            }),
+            Box::new(MockProvider {
+                id: "c",
+                fail: false,
+            }),
         ]);
         // First call: a fails, lands on b
         let r = fp.chat(&msgs(), None).await.unwrap();
@@ -238,8 +265,14 @@ mod tests {
     #[tokio::test]
     async fn fallback_all_fail() {
         let fp = FallbackProvider::new(vec![
-            Box::new(MockProvider { id: "a", fail: true }),
-            Box::new(MockProvider { id: "b", fail: true }),
+            Box::new(MockProvider {
+                id: "a",
+                fail: true,
+            }),
+            Box::new(MockProvider {
+                id: "b",
+                fail: true,
+            }),
         ]);
         let err = fp.chat(&msgs(), None).await.unwrap_err();
         assert!(err.to_string().contains("all providers exhausted"));
@@ -248,9 +281,18 @@ mod tests {
     #[tokio::test]
     async fn round_robin_rotates() {
         let rr = RoundRobinProvider::new(vec![
-            Box::new(MockProvider { id: "x", fail: false }),
-            Box::new(MockProvider { id: "y", fail: false }),
-            Box::new(MockProvider { id: "z", fail: false }),
+            Box::new(MockProvider {
+                id: "x",
+                fail: false,
+            }),
+            Box::new(MockProvider {
+                id: "y",
+                fail: false,
+            }),
+            Box::new(MockProvider {
+                id: "z",
+                fail: false,
+            }),
         ]);
         assert_eq!(resp_name(&rr.chat(&msgs(), None).await.unwrap()), "x");
         assert_eq!(resp_name(&rr.chat(&msgs(), None).await.unwrap()), "y");

@@ -26,6 +26,7 @@ pub enum Key {
     CtrlD,
     CtrlU,
     CtrlL,
+    CtrlR,
     Esc,
     Tab,
     /// Bracketed paste: all pasted text (may contain newlines) as one event.
@@ -96,7 +97,11 @@ impl RawGuard {
 fn byte_ready(timeout_ms: i32) -> bool {
     #[cfg(unix)]
     {
-        let mut pfd = libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 };
+        let mut pfd = libc::pollfd {
+            fd: 0,
+            events: libc::POLLIN,
+            revents: 0,
+        };
         // SAFETY: poll on a single fd with a timeout.
         unsafe { libc::poll(&mut pfd, 1, timeout_ms) > 0 && (pfd.revents & libc::POLLIN) != 0 }
     }
@@ -203,6 +208,7 @@ pub fn spawn_key_reader(tx: tokio::sync::mpsc::UnboundedSender<Key>) {
                 0x04 => Key::CtrlD,
                 0x15 => Key::CtrlU,
                 0x0c => Key::CtrlL,
+                0x12 => Key::CtrlR,
                 0x1b => {
                     // Distinguish a lone ESC from an escape sequence (arrows) by
                     // polling briefly for a follow-up byte. No follow-up → ESC.
@@ -246,15 +252,13 @@ pub fn spawn_key_reader(tx: tokio::sync::mpsc::UnboundedSender<Key>) {
                                     _ => continue,
                                 }
                             }
-                            Some(b'O') => {
-                                match read1() {
-                                    Some(b'A') => Key::Up,
-                                    Some(b'B') => Key::Down,
-                                    Some(b'C') => Key::Right,
-                                    Some(b'D') => Key::Left,
-                                    _ => continue,
-                                }
-                            }
+                            Some(b'O') => match read1() {
+                                Some(b'A') => Key::Up,
+                                Some(b'B') => Key::Down,
+                                Some(b'C') => Key::Right,
+                                Some(b'D') => Key::Left,
+                                _ => continue,
+                            },
                             None => Key::Esc,
                             _ => continue,
                         }
@@ -270,7 +274,10 @@ pub fn spawn_key_reader(tx: tokio::sync::mpsc::UnboundedSender<Key>) {
                             None => break,
                         }
                     }
-                    match std::str::from_utf8(&buf).ok().and_then(|s| s.chars().next()) {
+                    match std::str::from_utf8(&buf)
+                        .ok()
+                        .and_then(|s| s.chars().next())
+                    {
                         Some(ch) => Key::Char(ch),
                         None => continue,
                     }
@@ -393,7 +400,11 @@ pub fn clip_cols(s: &str, max: usize) -> String {
     let mut w = 0usize;
     let mut out = String::new();
     for ch in s.chars() {
-        let c = if ch == '\n' || ch == '\r' || ch == '\t' { ' ' } else { ch };
+        let c = if ch == '\n' || ch == '\r' || ch == '\t' {
+            ' '
+        } else {
+            ch
+        };
         let cw = char_width(c);
         if w + cw > max {
             break;
@@ -440,7 +451,11 @@ pub fn input_line(prompt: &str, input: &str, cursor: usize, term_cols: usize) ->
         vis.push(c);
         vw += w;
     }
-    let cur_col = pw + chars[start..cur].iter().map(|&c| char_width(c)).sum::<usize>();
+    let cur_col = pw
+        + chars[start..cur]
+            .iter()
+            .map(|&c| char_width(c))
+            .sum::<usize>();
     (format!("{prompt}{vis}"), cur_col)
 }
 

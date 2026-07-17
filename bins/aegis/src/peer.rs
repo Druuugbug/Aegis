@@ -103,7 +103,10 @@ fn run_revoke(agent_id: &str) -> Result<()> {
         if let Some(p) = cfg.peers.iter().find(|p| p.name == agent_id) {
             println!();
             println!("Note: peer '{agent_id}' is also declared in config.toml");
-            println!("with trust_level = \"{}\"; that value now applies.", p.trust_level);
+            println!(
+                "with trust_level = \"{}\"; that value now applies.",
+                p.trust_level
+            );
             println!("Edit config.toml directly if you also want to remove it there.");
         }
     } else {

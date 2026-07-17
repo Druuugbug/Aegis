@@ -147,7 +147,8 @@ mod tests {
         let mut hot = HotTier::new(4);
         let ctrl = make_controller(0.5);
         for i in 0..4 {
-            hot.put(Key::from_str(&format!("k{}", i)), Value::from_str("v")).unwrap();
+            hot.put(Key::from_str(&format!("k{}", i)), Value::from_str("v"))
+                .unwrap();
         }
         assert!(ctrl.should_drain(&hot));
     }
@@ -166,7 +167,8 @@ mod tests {
         let mut ctrl = make_controller(0.5);
 
         for i in 0..10 {
-            hot.put(Key::from_str(&format!("k{}", i)), Value::from_str("v")).unwrap();
+            hot.put(Key::from_str(&format!("k{}", i)), Value::from_str("v"))
+                .unwrap();
         }
 
         let result = ctrl.execute(&mut hot, &mut cold);

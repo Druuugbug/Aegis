@@ -86,7 +86,10 @@ pub(crate) async fn chat_with_status(agent: &mut Agent, input: &str) -> Result<S
 }
 
 fn render_paragraphs(text: &str) {
-    let paragraphs: Vec<&str> = text.split("\n\n").filter(|p| !p.trim().is_empty()).collect();
+    let paragraphs: Vec<&str> = text
+        .split("\n\n")
+        .filter(|p| !p.trim().is_empty())
+        .collect();
     for (i, para) in paragraphs.iter().enumerate() {
         if i > 0 {
             eprintln!();
@@ -153,7 +156,6 @@ fn human_tokens(n: u64) -> String {
     }
 }
 
-
 /// Read a line with terminal echo disabled (for secrets like API keys).
 /// Falls back to a normal, *visible* read on non-unix or when stdin is not a
 /// TTY (and says so, so the user isn't misled into thinking it was hidden).
@@ -186,7 +188,11 @@ pub(crate) fn read_secret(prompt: &str) -> Option<String> {
     // Fallback: visible read.
     eprintln!("{}", "  (note: input will be visible)".dimmed());
     let mut line = String::new();
-    std::io::stdin().lock().read_line(&mut line).ok().map(|_| line.trim().to_string())
+    std::io::stdin()
+        .lock()
+        .read_line(&mut line)
+        .ok()
+        .map(|_| line.trim().to_string())
 }
 
 #[allow(dead_code)]
@@ -204,11 +210,20 @@ pub fn run_setup_wizard() -> Option<String> {
 
     // Step 1: provider
     eprintln!("{}", "Step 1/5 — Provider".bright_cyan());
-    eprintln!("  Options: {} / {} / {}", "openai".bright_white(), "anthropic".bright_white(), "ollama".bright_white());
+    eprintln!(
+        "  Options: {} / {} / {}",
+        "openai".bright_white(),
+        "anthropic".bright_white(),
+        "ollama".bright_white()
+    );
     let provider = match rl.readline_with_initial("  Provider [openai]: ", ("openai", "")) {
         Ok(s) => {
             let s = s.trim().to_string();
-            if s.is_empty() { "openai".to_string() } else { s }
+            if s.is_empty() {
+                "openai".to_string()
+            } else {
+                s
+            }
         }
         Err(_) => return Some("Setup cancelled.".to_string()),
     };
@@ -220,17 +235,27 @@ pub fn run_setup_wizard() -> Option<String> {
         "ollama" => "http://localhost:11434/v1",
         _ => "https://api.openai.com/v1",
     };
-    let base_url = match rl.readline_with_initial(&format!("  Base URL [{}]: ", default_url), (default_url, "")) {
+    let base_url = match rl.readline_with_initial(
+        &format!("  Base URL [{}]: ", default_url),
+        (default_url, ""),
+    ) {
         Ok(s) => {
             let s = s.trim().to_string();
-            if s.is_empty() { default_url.to_string() } else { s }
+            if s.is_empty() {
+                default_url.to_string()
+            } else {
+                s
+            }
         }
         Err(_) => return Some("Setup cancelled.".to_string()),
     };
 
     // Step 3: api_key
     eprintln!("{}", "Step 3/5 — API Key".bright_cyan());
-    eprintln!("  {} Leave blank to use environment variable", "Tip:".dimmed());
+    eprintln!(
+        "  {} Leave blank to use environment variable",
+        "Tip:".dimmed()
+    );
     let api_key = match read_secret("  API Key: ") {
         Some(s) => s,
         None => return Some("Setup cancelled.".to_string()),
@@ -243,10 +268,17 @@ pub fn run_setup_wizard() -> Option<String> {
         "ollama" => "llama3.2",
         _ => "gpt-4o",
     };
-    let model = match rl.readline_with_initial(&format!("  Model [{}]: ", default_model), (default_model, "")) {
+    let model = match rl.readline_with_initial(
+        &format!("  Model [{}]: ", default_model),
+        (default_model, ""),
+    ) {
         Ok(s) => {
             let s = s.trim().to_string();
-            if s.is_empty() { default_model.to_string() } else { s }
+            if s.is_empty() {
+                default_model.to_string()
+            } else {
+                s
+            }
         }
         Err(_) => return Some("Setup cancelled.".to_string()),
     };
@@ -257,7 +289,15 @@ pub fn run_setup_wizard() -> Option<String> {
     eprintln!("{}", "─────────────────────────────".dimmed());
     eprintln!("  {} {}", "provider :".dimmed(), provider.bright_white());
     eprintln!("  {} {}", "base_url :".dimmed(), base_url.bright_white());
-    eprintln!("  {} {}", "api_key  :".dimmed(), if api_key.is_empty() { "(from env)".dimmed().to_string() } else { "*".repeat(api_key.len().min(8)).dimmed().to_string() });
+    eprintln!(
+        "  {} {}",
+        "api_key  :".dimmed(),
+        if api_key.is_empty() {
+            "(from env)".dimmed().to_string()
+        } else {
+            "*".repeat(api_key.len().min(8)).dimmed().to_string()
+        }
+    );
     eprintln!("  {} {}", "model    :".dimmed(), model.bright_white());
     eprintln!("{}", "─────────────────────────────".dimmed());
     eprintln!();
@@ -341,12 +381,12 @@ pub async fn run_chat(model_override: Option<String>, yolo: bool) -> Result<()> 
     // CWD follow `current_dir()`, so this one chdir covers both.
     if let Some(ws) = config.workspace_dir() {
         match std::fs::create_dir_all(&ws).and_then(|_| std::env::set_current_dir(&ws)) {
-            Ok(_) => eprintln!("  {} {}", "workspace:".dimmed(), ws.display().to_string().dimmed()),
-            Err(e) => eprintln!(
-                "  {} workspace {}: {e}",
-                "⚠".yellow(),
-                ws.display()
+            Ok(_) => eprintln!(
+                "  {} {}",
+                "workspace:".dimmed(),
+                ws.display().to_string().dimmed()
             ),
+            Err(e) => eprintln!("  {} workspace {}: {e}", "⚠".yellow(), ws.display()),
         }
     }
 
@@ -354,9 +394,17 @@ pub async fn run_chat(model_override: Option<String>, yolo: bool) -> Result<()> 
     let persistent_mgr = PersistentTaskManager::new();
     let active_tasks = persistent_mgr.load_active();
     if !active_tasks.is_empty() {
-        tracing::info!("[startup] resuming {} active persistent task(s)", active_tasks.len());
+        tracing::info!(
+            "[startup] resuming {} active persistent task(s)",
+            active_tasks.len()
+        );
         for task in &active_tasks {
-            tracing::info!("[startup] task {} ({}) — {}", task.id, task.trigger, task.name);
+            tracing::info!(
+                "[startup] task {} ({}) — {}",
+                task.id,
+                task.trigger,
+                task.name
+            );
             let _ = persistent_mgr.mark_running(&task.id);
         }
     }
@@ -366,7 +414,9 @@ pub async fn run_chat(model_override: Option<String>, yolo: bool) -> Result<()> 
     // Persistent long-term memory: load the graph from disk so memories survive
     // across sessions (saved again on session end).
     let mem_path = config::config_dir().join("memory/graph.json");
-    let mut memory_graph = Arc::new(std::sync::Mutex::new(aegis_memory::MemoryGraph::load(&mem_path)));
+    let mut memory_graph = Arc::new(std::sync::Mutex::new(aegis_memory::MemoryGraph::load(
+        &mem_path,
+    )));
     let registry = Arc::new(build_tool_registry(&config, memory_graph.clone()).await);
 
     let mut agent = Agent::new(provider.clone(), Some(store), config.clone());
@@ -382,17 +432,19 @@ pub async fn run_chat(model_override: Option<String>, yolo: bool) -> Result<()> 
             let bus = event_bus.clone();
             let expr_owned = expr.clone();
             tokio::spawn(async move {
-                let _ = trigger.run(|| {
-                    let bus = bus.clone();
-                    let expr = expr_owned.clone();
-                    async move {
-                        bus.publish(aegis_perception::Event::new(
-                            aegis_perception::EventSource::Cron { expression: expr },
-                            aegis_perception::Priority::Medium,
-                            serde_json::json!({"trigger": "cron"}),
-                        ));
-                    }
-                }).await;
+                let _ = trigger
+                    .run(|| {
+                        let bus = bus.clone();
+                        let expr = expr_owned.clone();
+                        async move {
+                            bus.publish(aegis_perception::Event::new(
+                                aegis_perception::EventSource::Cron { expression: expr },
+                                aegis_perception::Priority::Medium,
+                                serde_json::json!({"trigger": "cron"}),
+                            ));
+                        }
+                    })
+                    .await;
             });
         }
     }
@@ -401,18 +453,22 @@ pub async fn run_chat(model_override: Option<String>, yolo: bool) -> Result<()> 
         let server = aegis_perception::WebhookServer::new(config.perception.webhook_port);
         let bus = event_bus.clone();
         tokio::spawn(async move {
-            let _ = server.serve(move |body| {
-                let bus = bus.clone();
-                async move {
-                    let payload = serde_json::from_str(&body)
-                        .unwrap_or_else(|_| serde_json::json!({"raw": body}));
-                    bus.publish(aegis_perception::Event::new(
-                        aegis_perception::EventSource::Webhook { endpoint: "/".into() },
-                        aegis_perception::Priority::High,
-                        payload,
-                    ));
-                }
-            }).await;
+            let _ = server
+                .serve(move |body| {
+                    let bus = bus.clone();
+                    async move {
+                        let payload = serde_json::from_str(&body)
+                            .unwrap_or_else(|_| serde_json::json!({"raw": body}));
+                        bus.publish(aegis_perception::Event::new(
+                            aegis_perception::EventSource::Webhook {
+                                endpoint: "/".into(),
+                            },
+                            aegis_perception::Priority::High,
+                            payload,
+                        ));
+                    }
+                })
+                .await;
         });
     }
 
@@ -444,7 +500,8 @@ pub async fn run_chat(model_override: Option<String>, yolo: bool) -> Result<()> 
         // Replay recent messages from SQLite into in-memory history.
         // Collect first to avoid borrow conflict (store() borrows agent immutably).
         let replay_msgs = if swap.replay_messages > 0 {
-            agent.store()
+            agent
+                .store()
                 .and_then(|s| s.get_messages(&swap.session_id).ok())
                 .map(|msgs| {
                     msgs.into_iter()
@@ -479,6 +536,21 @@ pub async fn run_chat(model_override: Option<String>, yolo: bool) -> Result<()> 
         &agent.session_id()[..19],
     );
 
+    // Ensure the terminal is NOT left in any mouse-reporting mode. aegis never
+    // enables mouse tracking, but some outer terminals / web-terminal wrappers
+    // (or a prior program) leave SGR mouse mode on — which makes drag-to-select
+    // impossible and leaks mouse escape sequences (e.g. `0;21;40M`) straight
+    // into the input line. Disable every mouse mode so selection works and no
+    // stray bytes reach reedline. Modes: 1000 X10/X11, 1002 button-drag,
+    // 1003 any-motion, 1005 utf8-ext, 1006 SGR, 1015 urxvt.
+    {
+        use std::io::Write;
+        let mut out = std::io::stdout();
+        let _ =
+            out.write_all(b"\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l");
+        let _ = out.flush();
+    }
+
     let db_dir = config::config_dir();
     // Reedline editor with IDE-style slash-command completion menu.
     let history_path = db_dir.join("readline_history");
@@ -490,9 +562,10 @@ pub async fn run_chat(model_override: Option<String>, yolo: bool) -> Result<()> 
     // 避免卡住或被用户中断后空转）。
     // Skip persistent task resume if swap-state already recovered this session.
     let current_session_id = agent.session_id().to_string();
-    for task in active_tasks.iter().filter(|t| {
-        !swap_recovered || t.session_id.as_deref() != Some(&current_session_id)
-    }) {
+    for task in active_tasks
+        .iter()
+        .filter(|t| !swap_recovered || t.session_id.as_deref() != Some(&current_session_id))
+    {
         // Stuck-detection by PROGRESS, not restart count: only stop a task that
         // makes no progress for several resumes in a row. A slow-but-advancing
         // task (e.g. transient rate-limits between steps) keeps going.
@@ -558,9 +631,7 @@ pub async fn run_chat(model_override: Option<String>, yolo: bool) -> Result<()> 
                 Some((done, total, current)) => {
                     if done <= last_done {
                         // 无进度（卡住或被中断）→ 停止，下次启动再续。
-                        eprintln!(
-                            "[resume] 本次无新进度 ({done}/{total})，暂停；下次启动会继续。"
-                        );
+                        eprintln!("[resume] 本次无新进度 ({done}/{total})，暂停；下次启动会继续。");
                         break;
                     }
                     last_done = done;
@@ -582,7 +653,9 @@ pub async fn run_chat(model_override: Option<String>, yolo: bool) -> Result<()> 
         while let Some(msg) = agent.poll_high_priority_event() {
             eprintln!("  {} {}", "⚡ event:".bright_yellow(), msg.dimmed());
             match chat_with_status(&mut agent, &msg).await {
-                Ok(_) => { eprintln!(); }
+                Ok(_) => {
+                    eprintln!();
+                }
                 Err(e) => eprintln!("  {} {e}", "event error:".red()),
             }
         }
@@ -646,15 +719,21 @@ pub async fn run_chat(model_override: Option<String>, yolo: bool) -> Result<()> 
                     let config = Config::load(&config_path)?;
                     let provider = provider_from_config(&config)?;
                     let store = open_store()?;
-                    memory_graph =
-                        Arc::new(std::sync::Mutex::new(aegis_memory::MemoryGraph::load(&mem_path)));
-                    let registry = Arc::new(build_tool_registry(&config, memory_graph.clone()).await);
+                    memory_graph = Arc::new(std::sync::Mutex::new(
+                        aegis_memory::MemoryGraph::load(&mem_path),
+                    ));
+                    let registry =
+                        Arc::new(build_tool_registry(&config, memory_graph.clone()).await);
                     agent = Agent::new(provider.clone(), Some(store), config.clone());
                     agent.set_callbacks(Box::new(CliCallbacks::new(Status::new(), String::new())));
                     agent.set_tool_registry(registry);
                     wire_memory_backend(&mut agent, memory_graph.clone(), provider.clone());
                     agent.init_session()?;
-                    eprintln!("{} {}", "New session:".cyan(), agent.session_id()[..19].bright_cyan());
+                    eprintln!(
+                        "{} {}",
+                        "New session:".cyan(),
+                        agent.session_id()[..19].bright_cyan()
+                    );
                     eprintln!();
                     continue;
                 }
@@ -770,27 +849,34 @@ pub async fn run_chat(model_override: Option<String>, yolo: bool) -> Result<()> 
     Ok(())
 }
 
-
 /// Handle slash commands. Returns Some(message) if handled, None if not a command.
 pub(crate) async fn handle_slash_command(input: &str, agent: &mut Agent) -> Option<Option<String>> {
     match input {
         "/" => {
             return Some(Some("Tip: type / then use ↑/↓ to pick a command, or /help to list all.".to_string()));
         }
-        "/help" => {
-            let mut out = String::new();
-            out.push_str(&format!("\n  {}\n", "COMMANDS".bright_cyan().bold()));
-            out.push_str(&format!("  {}\n", "─────────────────────────────────────────".dimmed()));
-            for (cmd, desc) in crate::completer::SLASH_COMMANDS {
-                out.push_str(&format!(
-                    "  {:<20}{}\n",
-                    cmd.trim_end().bright_white(),
-                    desc.dimmed(),
-                ));
-            }
-            out.push_str(&format!("  {}\n", "─────────────────────────────────────────".dimmed()));
-            Some(Some(out))
-        }
+        "/help" => Some(Some(crate::completer::render_grouped_help())),
+        "/quit" | "/exit" => Some(Some(
+            "This command is handled by the local CLI. Press Ctrl+C/Ctrl+D or type /quit in the interactive terminal to exit.".to_string(),
+        )),
+        "/attach" => Some(Some(
+            "Usage: /attach <path>  (supported: png, jpg, jpeg, gif, webp, pdf)".to_string(),
+        )),
+        "/queue" | "/queue clear" => Some(Some(
+            "Queue is a local CLI state command. Type while a task is running to queue work; use /queue, /queue remove <n>, or /queue clear in the interactive terminal.".to_string(),
+        )),
+        s if s.starts_with("/queue remove ") || s.starts_with("/queue rm ") => Some(Some(
+            "Queue removal is handled by the local CLI because the queue lives in the client process.".to_string(),
+        )),
+        "/stop" | "/cancel" => Some(Some(
+            "Stop/cancel is handled by the local CLI while a task is running. Press Ctrl+C or type /stop during the running turn.".to_string(),
+        )),
+        "/expand" | "/o" => Some(Some(
+            "No client-side tool output is available here. In the interactive CLI, /expand (or /o) expands the most recent tool output shown by that client.".to_string(),
+        )),
+        "/thinking" => Some(Some(
+            "No client-side reasoning buffer is available here. In the interactive CLI, /thinking shows reasoning from the most recent turn when present.".to_string(),
+        )),
         "/setup" => Some(Some(format!(
             "Run `aegis setup` in a terminal for the interactive wizard.\n  Config file: {}\n  Or set via env: AEGIS_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY, AEGIS_MODEL, AEGIS_PROVIDER, AEGIS_BASE_URL.",
             config::config_path().display()
@@ -854,39 +940,47 @@ pub(crate) async fn handle_slash_command(input: &str, agent: &mut Agent) -> Opti
             if sessions.is_empty() {
                 return Some(Some("No past sessions found.".to_string()));
             }
-            let items: Vec<String> = sessions
-                .iter()
-                .map(|(id, title, started, count)| {
-                    format!("{} — {} ({} msgs · {})", &id[..id.len().min(19)], title, count, started)
-                })
-                .collect();
-            match crate::select::pick("Resume a session", &items) {
-                Some(idx) => {
-                    let (id, title, _, _) = &sessions[idx];
-                    agent.resume_session(id.clone());
-                    Some(Some(format!("✅ Resumed: {title}")))
-                }
-                None => Some(Some("Cancelled.".to_string())),
+            let mut out = String::new();
+            out.push_str(&format!("\n  {}\n", "SESSIONS".bright_cyan().bold()));
+            out.push_str(&format!(
+                "  {}\n",
+                "─────────────────────────────────────────".dimmed()
+            ));
+            for (i, (id, title, started, count)) in sessions.iter().enumerate() {
+                let short = &id[..id.len().min(19)];
+                out.push_str(&format!(
+                    "  {:>2}. {}  {}  ({} msgs · {})\n",
+                    i + 1,
+                    short.bright_white(),
+                    title,
+                    count,
+                    started.dimmed(),
+                ));
             }
+            out.push_str(&format!(
+                "  {}\n",
+                "─────────────────────────────────────────".dimmed()
+            ));
+            out.push_str(
+                "  Use /resume <number|session-id> to load one as background context.\n",
+            );
+            Some(Some(out))
         }
         "/rollback" => match CheckpointManager::list() {
             Ok(entries) if entries.is_empty() => {
                 Some(Some("No checkpoints available.".to_string()))
             }
             Ok(entries) => {
-                let items: Vec<String> = entries.iter().take(10)
-                    .map(|(name, path)| format!("{} → {}", name, path))
-                    .collect();
-                match crate::select::pick("Restore checkpoint", &items) {
-                    Some(idx) => {
-                        let (name, _) = &entries[idx];
-                        match CheckpointManager::restore(name) {
-                            Ok(_) => Some(Some(format!("✅ Restored: {name}"))),
-                            Err(e) => Some(Some(format!("Restore failed: {e}"))),
-                        }
-                    }
-                    None => Some(Some("Cancelled.".to_string())),
+                let mut out = String::new();
+                out.push_str("Checkpoints:\n");
+                for (i, (name, path)) in entries.iter().take(10).enumerate() {
+                    out.push_str(&format!("  {:>2}. {} → {}\n", i + 1, name, path));
                 }
+                if entries.len() > 10 {
+                    out.push_str(&format!("  … {} more\n", entries.len() - 10));
+                }
+                out.push_str("Use /rollback <number> to restore one.");
+                Some(Some(out))
             }
             Err(e) => Some(Some(format!("Error: {e}"))),
         },
@@ -1054,6 +1148,33 @@ pub(crate) async fn handle_slash_command(input: &str, agent: &mut Agent) -> Opti
                 } else {
                     Some(Some(format!("No steer found with id prefix: {id}")))
                 }
+            } else if let Some(id) = rest.strip_prefix("show ") {
+                let id = id.trim();
+                if id.is_empty() {
+                    return Some(Some("Usage: /steer show <id>".to_string()));
+                }
+                let matches: Vec<_> = agent
+                    .steer_list()
+                    .iter()
+                    .filter(|inst| inst.id.starts_with(id))
+                    .collect();
+                match matches.as_slice() {
+                    [] => Some(Some(format!("No steer found with id prefix: {id}"))),
+                    [inst] => {
+                        let dur = match inst.turns_left {
+                            None => "permanent".to_string(),
+                            Some(1) => "1 turn left".to_string(),
+                            Some(n) => format!("{n} turns left"),
+                        };
+                        Some(Some(format!(
+                            "Steering instruction [{:.8}] ({dur})\n{}",
+                            inst.id, inst.text
+                        )))
+                    }
+                    _ => Some(Some(format!(
+                        "Multiple steering instructions match {id}. Use a longer id prefix."
+                    ))),
+                }
             } else if rest == "list" {
                 let list = agent.steer_list();
                 if list.is_empty() {
@@ -1075,7 +1196,7 @@ pub(crate) async fn handle_slash_command(input: &str, agent: &mut Agent) -> Opti
                 Some(Some("All steering instructions cleared.".to_string()))
             } else {
                 Some(Some(
-                    "Usage: /steer add <text> | /steer add-n <N> <text> | /steer remove <id> | /steer list | /steer clear".to_string(),
+                    "Usage: /steer add <text> | /steer add-n <N> <text> | /steer show <id> | /steer remove <id> | /steer list | /steer clear".to_string(),
                 ))
             }
         }
@@ -1086,9 +1207,7 @@ pub(crate) async fn handle_slash_command(input: &str, agent: &mut Agent) -> Opti
                 Some(Some("Nothing to undo.".to_string()))
             }
         }
-        "/set" => Some(Some(
-            "Usage: /set <key> <value>  (e.g. /set output.style minimal, /set components.tier advanced)".to_string(),
-        )),
+        "/set" => Some(Some(crate::completer::render_set_help())),
         "/search" => Some(Some("Usage: /search <query>  (search past sessions)".to_string())),
         "/forget" => Some(Some(
             "Usage: /forget <memory-id>  (use /memory to list ids)".to_string(),
@@ -1161,9 +1280,7 @@ pub(crate) async fn handle_slash_command(input: &str, agent: &mut Agent) -> Opti
                     Ok(msg) => Some(Some(format!("set {msg}"))),
                     Err(e) => Some(Some(format!("set failed: {e}"))),
                 },
-                None => Some(Some(
-                    "Usage: /set <key> <value>  (e.g. /set output.style minimal)".to_string(),
-                )),
+                None => Some(Some(crate::completer::render_set_help())),
             }
         }
         "/profile" => Some(Some(agent.profile_markdown())),
@@ -1180,7 +1297,7 @@ pub(crate) async fn handle_slash_command(input: &str, agent: &mut Agent) -> Opti
                         it.id, it.confidence, preview
                     ));
                 }
-                out.push_str("  (use /forget <id> to delete one; /memory --all to see superseded; /memory add <text> to pin)");
+                out.push_str("  (use /memory remove <id> or /forget <id> to delete one; /memory --all to see superseded; /memory add <text> to pin)");
                 Some(Some(out))
             }
         }
@@ -1214,6 +1331,16 @@ pub(crate) async fn handle_slash_command(input: &str, agent: &mut Agent) -> Opti
                 }
                 return Some(Some("Could not store memory (no memory backend).".to_string()));
             }
+            if let Some(id) = rest.strip_prefix("remove ").or_else(|| rest.strip_prefix("rm ")) {
+                let id = id.trim();
+                if id.is_empty() {
+                    return Some(Some("Usage: /memory remove <memory-id>".to_string()));
+                }
+                if agent.memory_forget(id).await {
+                    return Some(Some(format!("Forgot memory: {id}")));
+                }
+                return Some(Some(format!("No memory found with id: {id}")));
+            }
             if let Some(id) = rest.strip_prefix("restore ") {
                 let id = id.trim();
                 if id.is_empty() {
@@ -1224,9 +1351,24 @@ pub(crate) async fn handle_slash_command(input: &str, agent: &mut Agent) -> Opti
                 }
                 return Some(Some(format!("No memory found with id: {id}")));
             }
+            if let Some(id) = rest.strip_prefix("show ") {
+                let id = id.trim();
+                if id.is_empty() {
+                    return Some(Some("Usage: /memory show <memory-id>".to_string()));
+                }
+                let items = agent.memory_list_all().await;
+                if let Some(item) = items.iter().find(|item| item.id == id) {
+                    let status = if item.active { "active" } else { "inactive" };
+                    return Some(Some(format!(
+                        "Memory {id} ({:.2}, {status}):\n{}",
+                        item.confidence, item.content
+                    )));
+                }
+                return Some(Some(format!("No memory found with id: {id}")));
+            }
             let query = rest;
             if query.is_empty() {
-                return Some(Some("Usage: /memory <query> | /memory --all | /memory add <text> | /memory restore <id>".to_string()));
+                return Some(Some("Usage: /memory <query> | /memory --all | /memory add <text> | /memory show <id> | /memory remove <id> | /memory restore <id>".to_string()));
             }
             let items = agent.memory_search(query, 20).await;
             if items.is_empty() {
@@ -1363,8 +1505,16 @@ pub(crate) async fn handle_slash_command(input: &str, agent: &mut Agent) -> Opti
             agent.push_message(msg);
             Some(Some(format!("📎 Attached: {path_str} ({} KB)", data.len() / 1024)))
         }
-        _ if input.starts_with('/') && is_plausible_command(input) => {
-            Some(Some(format!("Unknown command: {input}. Type /help")))
+        _ if input.starts_with('/') => {
+            if let Some(message) = crate::completer::matching_slash_command(input)
+                .and_then(|spec| spec.daemon_unavailable_message())
+            {
+                Some(Some(message))
+            } else if is_plausible_command(input) {
+                Some(Some(format!("Unknown command: {input}. Type /help")))
+            } else {
+                None
+            }
         }
         _ => None,
     }
@@ -1375,11 +1525,5 @@ pub(crate) async fn handle_slash_command(input: &str, agent: &mut Agent) -> Opti
 /// This prevents normal text that happens to start with `/` (e.g. pasted
 /// `/upgrade to increase your usage limit.`) from being rejected as unknown.
 fn is_plausible_command(input: &str) -> bool {
-    let first_word = input.split_whitespace().next().unwrap_or(input);
-    crate::completer::SLASH_COMMANDS
-        .iter()
-        .any(|(cmd, _)| {
-            let cmd_token = cmd.trim_end();
-            cmd_token == first_word || cmd_token.starts_with(first_word)
-        })
+    crate::completer::plausible_slash_command(input)
 }

@@ -37,7 +37,8 @@ pub fn encode_entry(entry: &Entry) -> Vec<u8> {
     let header_bytes = serde_json::to_vec(&header).unwrap_or_default();
     let header_len = header_bytes.len() as u32;
 
-    let mut output = Vec::with_capacity(4 + header_bytes.len() + entry.key.len() + entry.value.len());
+    let mut output =
+        Vec::with_capacity(4 + header_bytes.len() + entry.key.len() + entry.value.len());
     output.extend_from_slice(&header_len.to_le_bytes());
     output.extend_from_slice(&header_bytes);
     output.extend_from_slice(entry.key.as_bytes());

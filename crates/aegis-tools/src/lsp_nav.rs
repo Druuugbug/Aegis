@@ -53,14 +53,20 @@ impl Tool for CodeNavTool {
     async fn execute(&self, args: Value, ctx: &ToolContext<'_>) -> Result<String> {
         let action = args["action"].as_str().unwrap_or("").trim();
         if action.is_empty() {
-            return Ok("Provide an `action`: definition, references, hover, or symbols.".to_string());
+            return Ok(
+                "Provide an `action`: definition, references, hover, or symbols.".to_string(),
+            );
         }
         let Some(path) = args.get("path").and_then(|p| p.as_str()) else {
             return Ok("Provide a `path` to a source file.".to_string());
         };
 
         let p = Path::new(path);
-        let abs = if p.is_absolute() { p.to_path_buf() } else { ctx.cwd.join(p) };
+        let abs = if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            ctx.cwd.join(p)
+        };
         if !abs.exists() {
             return Ok(format!("File not found: {path}"));
         }
@@ -75,13 +81,18 @@ impl Tool for CodeNavTool {
             (0, 0)
         } else {
             let Some(line) = args["line"].as_u64() else {
-                return Ok(format!("`{action}` needs a 1-based `line` (and optionally `column`)."));
+                return Ok(format!(
+                    "`{action}` needs a 1-based `line` (and optionally `column`)."
+                ));
             };
             let col = args["column"].as_u64().unwrap_or(1);
             // Convert 1-based (human) → 0-based (LSP).
             (line.saturating_sub(1), col.saturating_sub(1))
         };
 
-        Ok(self.manager.navigate(action, &abs, &ctx.cwd, line0, col0).await)
+        Ok(self
+            .manager
+            .navigate(action, &abs, &ctx.cwd, line0, col0)
+            .await)
     }
 }

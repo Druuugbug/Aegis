@@ -130,7 +130,11 @@ pub fn run_restore(path: String, force: bool) -> Result<()> {
     if !status.success() {
         return Err(anyhow!("tar extract failed (exit {:?})", status.code()));
     }
-    println!("🧿 restored from {} into {}", archive.display(), base.display());
+    println!(
+        "🧿 restored from {} into {}",
+        archive.display(),
+        base.display()
+    );
     println!("   restart the gateway to load restored config/memory: aegis gateway stop");
     Ok(())
 }

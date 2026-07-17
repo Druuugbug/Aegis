@@ -124,9 +124,15 @@ mod tests {
 
     #[async_trait]
     impl Tool for DummyTool {
-        fn name(&self) -> &str { "dummy" }
-        fn description(&self) -> &str { "A test tool" }
-        fn parameters(&self) -> Value { serde_json::json!({"type": "object", "properties": {}}) }
+        fn name(&self) -> &str {
+            "dummy"
+        }
+        fn description(&self) -> &str {
+            "A test tool"
+        }
+        fn parameters(&self) -> Value {
+            serde_json::json!({"type": "object", "properties": {}})
+        }
         async fn execute(&self, _args: Value, _ctx: &ToolContext<'_>) -> Result<String> {
             Ok("ok".into())
         }

@@ -164,7 +164,10 @@ impl Tool for WidgetTool {
                     return Ok(format!("No widget found with id '{id}'."));
                 }
                 save_widgets(&widgets)?;
-                Ok(format!("Widget '{id}' removed. ({} remaining)", widgets.len()))
+                Ok(format!(
+                    "Widget '{id}' removed. ({} remaining)",
+                    widgets.len()
+                ))
             }
             "list" => {
                 let widgets = load_widgets();

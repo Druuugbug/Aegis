@@ -64,7 +64,9 @@ impl Tool for DiagnosticsTool {
         }
         let summary = self.manager.diagnostics_summary(&abs, &ctx.cwd).await;
         if summary.trim().is_empty() {
-            Ok(format!("No diagnostics for `{path}` (clean, or the server returned none in time)."))
+            Ok(format!(
+                "No diagnostics for `{path}` (clean, or the server returned none in time)."
+            ))
         } else {
             Ok(summary)
         }

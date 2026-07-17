@@ -53,7 +53,8 @@ fn valid_ref(r: &str) -> bool {
         && !r.starts_with('-')
         && !r.contains(char::is_whitespace)
         && r.chars().all(|c| {
-            c.is_ascii_alphanumeric() || matches!(c, '.' | '/' | '_' | '-' | '~' | '^' | '@' | '{' | '}' | ':')
+            c.is_ascii_alphanumeric()
+                || matches!(c, '.' | '/' | '_' | '-' | '~' | '^' | '@' | '{' | '}' | ':')
         })
 }
 
@@ -135,21 +136,51 @@ impl Tool for GitTool {
             "status" => a.extend(["status".into(), "--short".into(), "--branch".into()]),
             "log" => {
                 let limit = args["limit"].as_u64().unwrap_or(20).min(500);
-                a.extend(["log".into(), "--oneline".into(), "--decorate".into(), "-n".into(), limit.to_string()]);
-                if let Some(r) = &git_ref { a.push(r.clone()); }
-                if let Some(p) = &rel_path { a.push("--".into()); a.push(p.clone()); }
+                a.extend([
+                    "log".into(),
+                    "--oneline".into(),
+                    "--decorate".into(),
+                    "-n".into(),
+                    limit.to_string(),
+                ]);
+                if let Some(r) = &git_ref {
+                    a.push(r.clone());
+                }
+                if let Some(p) = &rel_path {
+                    a.push("--".into());
+                    a.push(p.clone());
+                }
             }
             "diff" => {
                 a.extend(["diff".into(), "--stat".into()]);
-                if args["staged"].as_bool().unwrap_or(false) { a.push("--staged".into()); }
-                if let Some(r) = &git_ref { a.push(r.clone()); }
-                if let Some(p) = &rel_path { a.push("--".into()); a.push(p.clone()); }
+                if args["staged"].as_bool().unwrap_or(false) {
+                    a.push("--staged".into());
+                }
+                if let Some(r) = &git_ref {
+                    a.push(r.clone());
+                }
+                if let Some(p) = &rel_path {
+                    a.push("--".into());
+                    a.push(p.clone());
+                }
             }
-            "show" => a.extend(["show".into(), "--stat".into(), git_ref.clone().unwrap_or_else(|| "HEAD".into())]),
+            "show" => a.extend([
+                "show".into(),
+                "--stat".into(),
+                git_ref.clone().unwrap_or_else(|| "HEAD".into()),
+            ]),
             "branch" => a.extend(["branch".into(), "-vv".into(), "--no-color".into()]),
             "blame" => {
-                let Some(p) = &rel_path else { return Ok("Error: 'blame' requires a 'path'".into()); };
-                a.extend(["blame".into(), "--date=short".into(), "-w".into(), "--".into(), p.clone()]);
+                let Some(p) = &rel_path else {
+                    return Ok("Error: 'blame' requires a 'path'".into());
+                };
+                a.extend([
+                    "blame".into(),
+                    "--date=short".into(),
+                    "-w".into(),
+                    "--".into(),
+                    p.clone(),
+                ]);
             }
             // ── write (autonomous) ──
             "add" => {
@@ -168,34 +199,54 @@ impl Tool for GitTool {
                     return Ok("Error: 'commit' requires a 'message'".into());
                 };
                 a.push("commit".into());
-                if args["all"].as_bool().unwrap_or(false) { a.push("-a".into()); }
+                if args["all"].as_bool().unwrap_or(false) {
+                    a.push("-a".into());
+                }
                 a.push("-m".into());
                 a.push(msg); // argv value — safe even if it starts with '-'
             }
             "checkout" => {
-                let Some(r) = &git_ref else { return Ok("Error: 'checkout' requires a 'ref'".into()); };
+                let Some(r) = &git_ref else {
+                    return Ok("Error: 'checkout' requires a 'ref'".into());
+                };
                 a.push("checkout".into());
-                if args["create"].as_bool().unwrap_or(false) { a.push("-b".into()); }
+                if args["create"].as_bool().unwrap_or(false) {
+                    a.push("-b".into());
+                }
                 a.push(r.clone());
             }
             "merge" => {
-                let Some(r) = &git_ref else { return Ok("Error: 'merge' requires a 'ref'".into()); };
+                let Some(r) = &git_ref else {
+                    return Ok("Error: 'merge' requires a 'ref'".into());
+                };
                 a.extend(["merge".into(), "--no-edit".into(), r.clone()]);
             }
             "push" => {
                 a.push("push".into());
-                if args["set_upstream"].as_bool().unwrap_or(false) { a.push("-u".into()); }
-                if let Some(r) = &remote { a.push(r.clone()); }
-                if let Some(b) = &branch { a.push(b.clone()); }
+                if args["set_upstream"].as_bool().unwrap_or(false) {
+                    a.push("-u".into());
+                }
+                if let Some(r) = &remote {
+                    a.push(r.clone());
+                }
+                if let Some(b) = &branch {
+                    a.push(b.clone());
+                }
             }
             "pull" => {
                 a.push("pull".into());
-                if let Some(r) = &remote { a.push(r.clone()); }
-                if let Some(b) = &branch { a.push(b.clone()); }
+                if let Some(r) = &remote {
+                    a.push(r.clone());
+                }
+                if let Some(b) = &branch {
+                    a.push(b.clone());
+                }
             }
             "fetch" => {
                 a.push("fetch".into());
-                if let Some(r) = &remote { a.push(r.clone()); }
+                if let Some(r) = &remote {
+                    a.push(r.clone());
+                }
             }
             "tag" => {
                 let Some(name) = opt_str(&args, "name") else {
@@ -220,7 +271,11 @@ impl Tool for GitTool {
             _ => unreachable!(),
         }
 
-        let timeout_secs = if NET_ACTIONS.contains(&action) { 120 } else { 60 };
+        let timeout_secs = if NET_ACTIONS.contains(&action) {
+            120
+        } else {
+            60
+        };
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(timeout_secs),
             tokio::process::Command::new("git")
@@ -235,7 +290,11 @@ impl Tool for GitTool {
 
         let output = match output {
             Ok(o) => o,
-            Err(e) => return Ok(format!("Failed to run git: {e}. Is git installed and on PATH?")),
+            Err(e) => {
+                return Ok(format!(
+                    "Failed to run git: {e}. Is git installed and on PATH?"
+                ))
+            }
         };
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -245,8 +304,12 @@ impl Tool for GitTool {
         if !output.status.success() {
             // Surface stderr (git writes its progress/errors there) with any stdout.
             let mut msg = format!("git {action} failed (exit {code})");
-            if !stderr.trim().is_empty() { msg.push_str(&format!(":\n{}", stderr.trim())); }
-            if !stdout.trim().is_empty() { msg.push_str(&format!("\n{}", stdout.trim())); }
+            if !stderr.trim().is_empty() {
+                msg.push_str(&format!(":\n{}", stderr.trim()));
+            }
+            if !stdout.trim().is_empty() {
+                msg.push_str(&format!("\n{}", stdout.trim()));
+            }
             if is_write && action == "merge" {
                 msg.push_str("\n(If this is a merge conflict, resolve it via `terminal`/edits, then commit.)");
             }
@@ -255,9 +318,13 @@ impl Tool for GitTool {
 
         // Success: prefer stdout; many write ops report on stderr instead.
         let mut result = String::new();
-        if !stdout.trim().is_empty() { result.push_str(stdout.trim_end()); }
+        if !stdout.trim().is_empty() {
+            result.push_str(stdout.trim_end());
+        }
         if !stderr.trim().is_empty() {
-            if !result.is_empty() { result.push('\n'); }
+            if !result.is_empty() {
+                result.push('\n');
+            }
             result.push_str(stderr.trim_end());
         }
         if result.is_empty() {
@@ -269,7 +336,11 @@ impl Tool for GitTool {
 
 /// Read a non-empty trimmed string arg.
 fn opt_str(args: &Value, key: &str) -> Option<String> {
-    args[key].as_str().map(|s| s.trim()).filter(|s| !s.is_empty()).map(|s| s.to_string())
+    args[key]
+        .as_str()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
 }
 
 fn truncate(s: &str, max: usize) -> String {

@@ -426,8 +426,8 @@ fn apply_seccomp(profile: &SyscallProfile) -> std::io::Result<()> {
 
     let filter = SeccompFilter::new(
         rules,
-        SeccompAction::Allow,                       // default action
-        SeccompAction::Errno(libc::EPERM as u32),   // for matched (denied)
+        SeccompAction::Allow,                     // default action
+        SeccompAction::Errno(libc::EPERM as u32), // for matched (denied)
         arch,
     )
     .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e:?}")))?;

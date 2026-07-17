@@ -34,19 +34,25 @@ impl Tool for MemorySearchTool {
         let limit = args["limit"].as_u64().unwrap_or(5) as usize;
         let action = args["action"].as_str().unwrap_or("search");
 
-        let mut graph = self.graph.lock().map_err(|e| anyhow::anyhow!("lock error: {e}"))?;
+        let mut graph = self
+            .graph
+            .lock()
+            .map_err(|e| anyhow::anyhow!("lock error: {e}"))?;
 
         match action {
             "forget" => {
                 // If query looks like an ID, delete precisely; otherwise search and batch delete
-                if query.starts_with("mem-") || (query.len() > 8 && query.chars().all(|c| c.is_ascii_hexdigit() || c == '-')) {
+                if query.starts_with("mem-")
+                    || (query.len() > 8 && query.chars().all(|c| c.is_ascii_hexdigit() || c == '-'))
+                {
                     if graph.forget(query) {
                         Ok(format!("Deleted memory: {query}"))
                     } else {
                         Ok(format!("No memory found with id: {query}"))
                     }
                 } else {
-                    let matches: Vec<String> = graph.search(query, limit)
+                    let matches: Vec<String> = graph
+                        .search(query, limit)
                         .iter()
                         .map(|e| e.id.clone())
                         .collect();
@@ -66,7 +72,8 @@ impl Tool for MemorySearchTool {
                     return Ok("Error: new_content is required for action=update".to_string());
                 }
                 // Find best match, supersede it with new content
-                let matches: Vec<String> = graph.search(query, 1)
+                let matches: Vec<String> = graph
+                    .search(query, 1)
                     .iter()
                     .map(|e| e.id.clone())
                     .collect();
@@ -80,9 +87,14 @@ impl Tool for MemorySearchTool {
                             .unwrap_or(0)
                     );
                     graph.insert(aegis_memory::MemoryEntry::new(
-                        &id, new_content, aegis_memory::MemoryCategory::Fact, "user",
+                        &id,
+                        new_content,
+                        aegis_memory::MemoryCategory::Fact,
+                        "user",
                     ));
-                    Ok(format!("No existing memory matched; created new: {new_content}"))
+                    Ok(format!(
+                        "No existing memory matched; created new: {new_content}"
+                    ))
                 } else {
                     let old_id = &matches[0];
                     // Deactivate old
@@ -96,10 +108,15 @@ impl Tool for MemorySearchTool {
                             .unwrap_or(0)
                     );
                     graph.insert(aegis_memory::MemoryEntry::new(
-                        &new_id, new_content, aegis_memory::MemoryCategory::Fact, "user",
+                        &new_id,
+                        new_content,
+                        aegis_memory::MemoryCategory::Fact,
+                        "user",
                     ));
                     graph.supersede(old_id, &new_id);
-                    Ok(format!("Updated memory: superseded old with: {new_content}"))
+                    Ok(format!(
+                        "Updated memory: superseded old with: {new_content}"
+                    ))
                 }
             }
             _ => {
@@ -111,7 +128,9 @@ impl Tool for MemorySearchTool {
                 let lines: Vec<String> = results
                     .iter()
                     .enumerate()
-                    .map(|(i, e)| format!("{}. [{}] (id:{}) {}", i + 1, e.category, e.id, e.content))
+                    .map(|(i, e)| {
+                        format!("{}. [{}] (id:{}) {}", i + 1, e.category, e.id, e.content)
+                    })
                     .collect();
                 Ok(lines.join("\n"))
             }
@@ -127,12 +146,49 @@ mod tests {
     #[tokio::test]
     async fn test_memory_search_tool() {
         let mut graph = MemoryGraph::new();
-        graph.insert(MemoryEntry::new("m1", "Rust is a systems language", MemoryCategory::Fact, "user"));
+        graph.insert(MemoryEntry::new(
+            "m1",
+            "Rust is a systems language",
+            MemoryCategory::Fact,
+            "user",
+        ));
 
         let tool = MemorySearchTool {
             graph: Arc::new(Mutex::new(graph)),
         };
 
+        let ctx = ToolContext {
+            cwd: std::path::PathBuf::from("/tmp"),
+            session_id: "test".to_string(),
+            approve_fn: &|_| true,
+            yolo: true,
+            identity: None,
+            sandbox_enabled: false,
+        };
+
+        let result = tool.execute(json!({"query": "rust"}), &ctx).await.unwrap();
+        assert!(result.contains("Rust is a systems language"));
+    }
+
+    #[tokio::test]
+    async fn test_memory_forget_by_query() {
+        let mut graph = MemoryGraph::new();
+        graph.insert(MemoryEntry::new(
+            "m1",
+            "old password is abc123",
+            MemoryCategory::Fact,
+            "user",
+        ));
+        graph.insert(MemoryEntry::new(
+            "m2",
+            "favorite color is blue",
+            MemoryCategory::Fact,
+            "user",
+        ));
+
+        let tool = MemorySearchTool {
+            graph: Arc::new(Mutex::new(graph)),
+        };
         let ctx = ToolContext {
             cwd: std::path::PathBuf::from("/tmp"),
             session_id: "test".to_string(),
@@ -143,42 +199,28 @@ mod tests {
         };
 
         let result = tool
-            .execute(json!({"query": "rust"}), &ctx)
+            .execute(json!({"query": "password", "action": "forget"}), &ctx)
             .await
             .unwrap();
-        assert!(result.contains("Rust is a systems language"));
-    }
-
-    #[tokio::test]
-    async fn test_memory_forget_by_query() {
-        let mut graph = MemoryGraph::new();
-        graph.insert(MemoryEntry::new("m1", "old password is abc123", MemoryCategory::Fact, "user"));
-        graph.insert(MemoryEntry::new("m2", "favorite color is blue", MemoryCategory::Fact, "user"));
-
-        let tool = MemorySearchTool {
-            graph: Arc::new(Mutex::new(graph)),
-        };
-        let ctx = ToolContext {
-            cwd: std::path::PathBuf::from("/tmp"),
-            session_id: "test".to_string(),
-            approve_fn: &|_| true,
-            yolo: true,
-            identity: None,
-            sandbox_enabled: false,
-        };
-
-        let result = tool.execute(json!({"query": "password", "action": "forget"}), &ctx).await.unwrap();
         assert!(result.contains("Deleted 1"));
 
         // Verify it's gone
-        let search = tool.execute(json!({"query": "password"}), &ctx).await.unwrap();
+        let search = tool
+            .execute(json!({"query": "password"}), &ctx)
+            .await
+            .unwrap();
         assert!(search.contains("No memories found"));
     }
 
     #[tokio::test]
     async fn test_memory_update() {
         let mut graph = MemoryGraph::new();
-        graph.insert(MemoryEntry::new("m1", "password is abc123", MemoryCategory::Fact, "user"));
+        graph.insert(MemoryEntry::new(
+            "m1",
+            "password is abc123",
+            MemoryCategory::Fact,
+            "user",
+        ));
 
         let tool = MemorySearchTool {
             graph: Arc::new(Mutex::new(graph)),
@@ -192,15 +234,24 @@ mod tests {
             sandbox_enabled: false,
         };
 
-        let result = tool.execute(json!({
-            "query": "password",
-            "action": "update",
-            "new_content": "password is xyz789"
-        }), &ctx).await.unwrap();
+        let result = tool
+            .execute(
+                json!({
+                    "query": "password",
+                    "action": "update",
+                    "new_content": "password is xyz789"
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
         assert!(result.contains("Updated memory"));
 
         // Verify new content is searchable
-        let search = tool.execute(json!({"query": "xyz789"}), &ctx).await.unwrap();
+        let search = tool
+            .execute(json!({"query": "xyz789"}), &ctx)
+            .await
+            .unwrap();
         assert!(search.contains("xyz789"));
     }
 }

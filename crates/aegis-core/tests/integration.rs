@@ -25,7 +25,11 @@ impl Provider for MockProvider {
         "mock"
     }
 
-    async fn chat(&self, _messages: &[Message], _tools: Option<&serde_json::Value>) -> Result<LlmResponse> {
+    async fn chat(
+        &self,
+        _messages: &[Message],
+        _tools: Option<&serde_json::Value>,
+    ) -> Result<LlmResponse> {
         Ok(self.make_response())
     }
 
@@ -115,7 +119,10 @@ fn test_build_split_system_prompt_hash_stable() {
     use std::hash::{Hash, Hasher};
 
     fn compute(tools_desc: &str) -> u64 {
-        let static_text = format!("You are Aegis, an AI assistant.\n\nTools available:\n{}", tools_desc);
+        let static_text = format!(
+            "You are Aegis, an AI assistant.\n\nTools available:\n{}",
+            tools_desc
+        );
         let mut hasher = DefaultHasher::new();
         static_text.hash(&mut hasher);
         hasher.finish()

@@ -60,7 +60,10 @@ impl FeishuChannel {
         });
         let resp = self
             .client
-            .post(format!("{}/open-apis/auth/v3/tenant_access_token/internal", self.base))
+            .post(format!(
+                "{}/open-apis/auth/v3/tenant_access_token/internal",
+                self.base
+            ))
             .json(&body)
             .send()
             .await?;
@@ -103,7 +106,11 @@ impl Channel for FeishuChannel {
         let url = format!(
             "{}/open-apis/im/v1/messages?receive_id_type={}",
             self.base,
-            if self.receive_id.starts_with("oc_") { "chat_id" } else { "open_id" }
+            if self.receive_id.starts_with("oc_") {
+                "chat_id"
+            } else {
+                "open_id"
+            }
         );
         let body = serde_json::json!({
             "receive_id": self.receive_id,

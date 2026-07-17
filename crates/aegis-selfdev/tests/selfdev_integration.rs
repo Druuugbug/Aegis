@@ -23,7 +23,10 @@ fn contract_canary_initial_state_is_none() {
 #[tokio::test]
 async fn contract_canary_deploy_sets_active() {
     let mut engine = test_engine();
-    engine.deploy_canary(PathBuf::from("/tmp/bin")).await.unwrap();
+    engine
+        .deploy_canary(PathBuf::from("/tmp/bin"))
+        .await
+        .unwrap();
     let slot = engine.canary_slot.as_ref().unwrap();
     assert!(matches!(slot.status, CanaryStatus::Active));
     assert!(engine.canary_start_time.is_some());
@@ -32,7 +35,10 @@ async fn contract_canary_deploy_sets_active() {
 #[tokio::test]
 async fn contract_canary_active_to_promoted() {
     let mut engine = test_engine();
-    engine.deploy_canary(PathBuf::from("/tmp/bin")).await.unwrap();
+    engine
+        .deploy_canary(PathBuf::from("/tmp/bin"))
+        .await
+        .unwrap();
     engine.promote_canary().await.unwrap();
     let slot = engine.canary_slot.as_ref().unwrap();
     assert!(matches!(slot.status, CanaryStatus::Promoted));
@@ -43,7 +49,10 @@ async fn contract_canary_active_to_promoted() {
 #[tokio::test]
 async fn contract_canary_active_to_rollback() {
     let mut engine = test_engine();
-    engine.deploy_canary(PathBuf::from("/tmp/bin")).await.unwrap();
+    engine
+        .deploy_canary(PathBuf::from("/tmp/bin"))
+        .await
+        .unwrap();
     engine.rollback_to_stable("test").await.unwrap();
     let slot = engine.canary_slot.as_ref().unwrap();
     assert!(matches!(slot.status, CanaryStatus::RolledBack));
@@ -52,7 +61,10 @@ async fn contract_canary_active_to_rollback() {
 #[tokio::test]
 async fn contract_canary_promoted_to_rollback() {
     let mut engine = test_engine();
-    engine.deploy_canary(PathBuf::from("/tmp/bin")).await.unwrap();
+    engine
+        .deploy_canary(PathBuf::from("/tmp/bin"))
+        .await
+        .unwrap();
     engine.promote_canary().await.unwrap();
     engine.rollback_to_stable("late crash").await.unwrap();
     let slot = engine.canary_slot.as_ref().unwrap();
@@ -169,7 +181,10 @@ fn contract_crashes_with_rolledback_canary_no_rollback() {
 #[tokio::test]
 async fn contract_watch_no_crash_promotes() {
     let mut engine = test_engine();
-    engine.deploy_canary(PathBuf::from("/tmp/bin")).await.unwrap();
+    engine
+        .deploy_canary(PathBuf::from("/tmp/bin"))
+        .await
+        .unwrap();
     engine.observe_duration_secs = 0;
     let promoted = engine.watch_canary().await.unwrap();
     assert!(promoted);
@@ -182,7 +197,10 @@ async fn contract_watch_no_crash_promotes() {
 #[tokio::test]
 async fn contract_watch_with_crash_rollback() {
     let mut engine = test_engine();
-    engine.deploy_canary(PathBuf::from("/tmp/bin")).await.unwrap();
+    engine
+        .deploy_canary(PathBuf::from("/tmp/bin"))
+        .await
+        .unwrap();
     engine.record_crash(CrashInfo {
         version: "v1".into(),
         error: "crash".into(),
@@ -254,7 +272,10 @@ fn contract_multiple_crashes_accumulate() {
 #[tokio::test]
 async fn integration_full_deploy_promote_cycle() {
     let mut engine = test_engine();
-    engine.deploy_canary(PathBuf::from("/tmp/bin-v1")).await.unwrap();
+    engine
+        .deploy_canary(PathBuf::from("/tmp/bin-v1"))
+        .await
+        .unwrap();
 
     // Simulate watching without crashes
     engine.observe_duration_secs = 0;
@@ -268,7 +289,10 @@ async fn integration_crash_rollback_redeploy() {
     let mut engine = test_engine();
 
     // First deploy
-    engine.deploy_canary(PathBuf::from("/tmp/bin-v1")).await.unwrap();
+    engine
+        .deploy_canary(PathBuf::from("/tmp/bin-v1"))
+        .await
+        .unwrap();
     assert!(matches!(
         engine.canary_slot.as_ref().unwrap().status,
         CanaryStatus::Active
@@ -294,7 +318,10 @@ async fn integration_crash_rollback_redeploy() {
     engine.crash_history.clear();
 
     // Redeploy
-    engine.deploy_canary(PathBuf::from("/tmp/bin-v2")).await.unwrap();
+    engine
+        .deploy_canary(PathBuf::from("/tmp/bin-v2"))
+        .await
+        .unwrap();
     assert!(matches!(
         engine.canary_slot.as_ref().unwrap().status,
         CanaryStatus::Active

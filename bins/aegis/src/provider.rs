@@ -1,12 +1,11 @@
 use aegis_core::aegis_tools::{
-    ClarifyTool, ControlTool, MemorySearchTool, PatchTool, ReadFileTool, RecordSearchTool,
-    SearchFilesTool, SessionSearchTool, SessionTool, BrowserTool, MaigretTool, SpawnTaskTool,
-    TerminalTool, TodoTool, ToolRegistry, WebExtractTool, WebSearchTool, WriteFileTool,
-    BackgroundTool, RemoteTool, CratesTool, SkillTool, WidgetTool,
-    ReadDocumentTool, DocExtractProTool, WebFetchProTool,
-    HttpRequestTool, CalcTool, ListFilesTool, SystemStatusTool,
-    ProcessListTool, HttpProbeTool, DnsLookupTool, ServiceTool,
-    DiskUsageTool, ListeningPortsTool, GitTool,
+    BackgroundTool, BrowserTool, CalcTool, ClarifyTool, ControlTool, CratesTool, DiskUsageTool,
+    DnsLookupTool, DocExtractProTool, GitTool, HttpProbeTool, HttpRequestTool, ListFilesTool,
+    ListeningPortsTool, MaigretTool, MemorySearchTool, PatchTool, ProcessListTool,
+    ReadDocumentTool, ReadFileTool, RecordSearchTool, RemoteTool, SearchFilesTool, ServiceTool,
+    SessionSearchTool, SessionTool, SkillTool, SpawnTaskTool, SystemStatusTool, TerminalTool,
+    TodoTool, ToolRegistry, WebExtractTool, WebFetchProTool, WebSearchTool, WidgetTool,
+    WriteFileTool,
 };
 use aegis_core::config::Config;
 use aegis_mcp::McpClient;
@@ -71,7 +70,8 @@ fn wrap_endurance(config: &Config, provider: Arc<dyn Provider>) -> Arc<dyn Provi
 }
 
 /// Build the full provider (with fallback chain) from config.
-pub fn provider_from_config(config: &Config) -> Result<Arc<dyn Provider>> {    let primary_keys: Vec<String> = if let Some(keys) = &config.model.api_keys {
+pub fn provider_from_config(config: &Config) -> Result<Arc<dyn Provider>> {
+    let primary_keys: Vec<String> = if let Some(keys) = &config.model.api_keys {
         let non_empty: Vec<String> = keys.iter().filter(|k| !k.is_empty()).cloned().collect();
         if !non_empty.is_empty() {
             non_empty
@@ -85,7 +85,10 @@ pub fn provider_from_config(config: &Config) -> Result<Arc<dyn Provider>> {    l
     let base_url = config.resolve_base_url();
 
     let primary: Arc<dyn Provider> = if primary_keys.len() > 1 {
-        let pool = Arc::new(CredentialPool::new(primary_keys, RotationStrategy::RoundRobin));
+        let pool = Arc::new(CredentialPool::new(
+            primary_keys,
+            RotationStrategy::RoundRobin,
+        ));
         let key = pool.next_key().expect("pool has keys");
         build_single_provider(
             &config.model.provider,
@@ -117,13 +120,14 @@ pub fn provider_from_config(config: &Config) -> Result<Arc<dyn Provider>> {    l
                     .clone()
                     .filter(|k| !k.is_empty())
                     .unwrap_or_else(|| config.resolve_api_key().unwrap_or_default());
-                let fb_base_url = fb.base_url.clone().unwrap_or_else(|| {
-                    match fb.provider.as_str() {
-                        "anthropic" => "https://api.anthropic.com".into(),
-                        "ollama" => "http://localhost:11434/v1".into(),
-                        _ => "https://api.openai.com/v1".into(),
-                    }
-                });
+                let fb_base_url =
+                    fb.base_url
+                        .clone()
+                        .unwrap_or_else(|| match fb.provider.as_str() {
+                            "anthropic" => "https://api.anthropic.com".into(),
+                            "ollama" => "http://localhost:11434/v1".into(),
+                            _ => "https://api.openai.com/v1".into(),
+                        });
                 chain.push(build_single_provider(
                     &fb.provider,
                     fb_key,
@@ -227,7 +231,9 @@ pub async fn build_tool_registry(
     }
     reg.register(Arc::new(SessionSearchTool));
     reg.register(Arc::new(SpawnTaskTool::new(50)));
-    reg.register(Arc::new(MemorySearchTool { graph: memory_graph }));
+    reg.register(Arc::new(MemorySearchTool {
+        graph: memory_graph,
+    }));
     reg.register(Arc::new(RecordSearchTool::new()));
     // Web access: look up docs, error messages, CVEs, package versions. Works
     // key-free via DuckDuckGo; uses Exa/Tavily automatically if an API key is
@@ -311,7 +317,10 @@ pub async fn build_tool_registry(
         match tokio::time::timeout(std::time::Duration::from_secs(5), connect).await {
             Ok(Ok(n)) => eprintln!("  {} {name}: {n} tools registered", "MCP".cyan()),
             Ok(Err(e)) => eprintln!("  {} {name}: failed to connect: {e}", "MCP".yellow()),
-            Err(_) => eprintln!("  {} {name}: connect timed out (5s), skipped", "MCP".yellow()),
+            Err(_) => eprintln!(
+                "  {} {name}: connect timed out (5s), skipped",
+                "MCP".yellow()
+            ),
         }
     }
 

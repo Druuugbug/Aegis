@@ -17,4 +17,4 @@ mod strategy;
 
 pub use autotuner::{AutoTuner, FeedbackSignal, TuningAction, TuningActionType};
 pub use signals::{FeedbackCollector, Signal, SignalSource, TaskContext};
-pub use strategy::{Strategy, StrategyManager, StrategyStatus, StrategyType, Origin};
+pub use strategy::{Origin, Strategy, StrategyManager, StrategyStatus, StrategyType};

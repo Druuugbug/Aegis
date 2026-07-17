@@ -1,104 +1,24 @@
 //! Reedline-based interactive input with slash-command completion.
 //!
-//! UX: pressing `/` as the first character opens the command menu (Slack/Claude Code style).
-//! If the buffer already has content, `/` inserts normally.
+//! UX: `/` is normal input and keeps the command prefix visible; Tab completes
+//! the current slash command instead of opening a command palette from an empty
+//! buffer.
+//!
+//! This input stack is an explicit fallback for plain/reedline sessions. Rich
+//! TTY-only interactions (`!` shell PATH completion, session pickers, manager
+//! forms) live in the raw gateway TUI so non-TTY and remote-style clients keep a
+//! predictable text-command surface instead of partial local UI behavior.
 
 use reedline::{
-    default_emacs_keybindings, ColumnarMenu, Completer, DefaultHinter, EditMode, Emacs,
-    FileBackedHistory, Hinter, History, KeyCode, KeyModifiers, MenuBuilder, Prompt, PromptEditMode,
-    PromptHistorySearch, PromptHistorySearchStatus, Reedline, ReedlineEvent, ReedlineMenu,
-    ReedlineRawEvent, Signal, Span, Suggestion, ValidationResult, Validator,
+    ColumnarMenu, Completer, DefaultHinter, Emacs, FileBackedHistory, KeyCode, KeyModifiers,
+    MenuBuilder, Prompt, PromptEditMode, PromptHistorySearch, PromptHistorySearchStatus, Reedline,
+    ReedlineEvent, ReedlineMenu, Signal, Span, Suggestion, ValidationResult, Validator,
+    default_emacs_keybindings,
 };
 use std::borrow::Cow;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
 
 use crate::completer::SLASH_COMMANDS;
-
-// ── Shared buffer-empty state ──
-
-/// Shared flag: true when the editor buffer is empty.
-/// Updated by SlashHinter (after each keystroke), read by SlashEditMode (before next keystroke).
-type BufferEmpty = Arc<AtomicBool>;
-
-// ── Custom EditMode ──
-
-/// Wraps the standard Emacs mode but intercepts `/`:
-/// - Buffer empty → `Menu("slash_menu")` (opens command palette)
-/// - Buffer non-empty → `Edit(InsertChar('/'))` (normal typing)
-struct SlashEditMode {
-    inner: Emacs,
-    buffer_empty: BufferEmpty,
-}
-
-impl EditMode for SlashEditMode {
-    fn parse_event(&mut self, event: ReedlineRawEvent) -> ReedlineEvent {
-        use reedline::EditCommand;
-        use std::io::Write;
-
-        let result = self.inner.parse_event(event);
-
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("/tmp/slash_debug.log")
-        {
-            match &result {
-                ReedlineEvent::Edit(cmds) if cmds.len() == 1 => {
-                    if let EditCommand::InsertChar(c) = cmds[0] {
-                        let _ = writeln!(f, "InsertChar({:?}) buffer_empty={}", c, self.buffer_empty.load(Ordering::Relaxed));
-                        if c == '/' && self.buffer_empty.load(Ordering::Relaxed) {
-                            let _ = writeln!(f, "→ triggering Menu");
-                            return ReedlineEvent::Menu("slash_menu".to_string());
-                        }
-                    } else {
-                        let _ = writeln!(f, "Edit cmd: {:?}", cmds[0]);
-                    }
-                }
-                other => {
-                    let _ = writeln!(f, "event: {:?}", other);
-                }
-            }
-        }
-
-        result
-    }
-
-    fn edit_mode(&self) -> PromptEditMode {
-        self.inner.edit_mode()
-    }
-}
-
-// ── Custom Hinter ──
-
-/// A hinter that tracks whether the buffer is empty (for SlashEditMode)
-/// while still providing normal history-based hints via DefaultHinter.
-struct SlashHinter {
-    inner: DefaultHinter,
-    buffer_empty: BufferEmpty,
-}
-
-impl Hinter for SlashHinter {
-    fn handle(
-        &mut self,
-        line: &str,
-        pos: usize,
-        history: &dyn History,
-        use_ansi_coloring: bool,
-        cwd: &str,
-    ) -> String {
-        self.buffer_empty.store(line.is_empty(), Ordering::Relaxed);
-        self.inner.handle(line, pos, history, use_ansi_coloring, cwd)
-    }
-
-    fn complete_hint(&self) -> String {
-        self.inner.complete_hint()
-    }
-
-    fn next_hint_token(&self) -> String {
-        self.inner.next_hint_token()
-    }
-}
 
 // ── Prompt ──
 
@@ -131,26 +51,125 @@ impl Prompt for AegisPrompt {
 
 // ── Completer ──
 
+fn mention_token_bounds(line: &str, pos: usize) -> Option<(usize, usize, String)> {
+    let before = &line[..pos];
+    let start = before
+        .char_indices()
+        .rev()
+        .find(|(_, ch)| ch.is_whitespace())
+        .map(|(i, ch)| i + ch.len_utf8())
+        .unwrap_or(0);
+    let token = &line[start..pos];
+    let path = token.strip_prefix('@')?;
+    if path.contains('@') {
+        return None;
+    }
+    Some((start, pos, path.to_string()))
+}
+
+fn mention_path_is_sensitive(path: &Path) -> bool {
+    path.components().any(|component| {
+        let name = component.as_os_str().to_string_lossy();
+        matches!(
+            name.as_ref(),
+            ".git" | ".env" | ".npmrc" | ".netrc" | ".git-credentials"
+        )
+    })
+}
+
+fn mention_suggestions(line: &str, pos: usize) -> Vec<Suggestion> {
+    let Some((start, end, token)) = mention_token_bounds(line, pos) else {
+        return Vec::new();
+    };
+    if token.starts_with('/') || token.starts_with('~') {
+        return Vec::new();
+    }
+    let (dir_part, name_prefix) = match token.rsplit_once('/') {
+        Some((dir, name)) => (dir, name),
+        None => (".", token.as_str()),
+    };
+    let read_dir = PathBuf::from(dir_part);
+    if mention_path_is_sensitive(&read_dir) {
+        return Vec::new();
+    }
+    let Ok(entries) = std::fs::read_dir(read_dir) else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    for entry in entries.flatten().take(80) {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.starts_with(name_prefix) {
+            continue;
+        }
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        let suffix = if is_dir { "/" } else { "" };
+        let completed_path = match token.rsplit_once('/') {
+            Some((dir, _)) => format!("{dir}/{name}{suffix}"),
+            None => format!("{name}{suffix}"),
+        };
+        if mention_path_is_sensitive(Path::new(&completed_path)) {
+            continue;
+        }
+        out.push(Suggestion {
+            value: format!("@{completed_path}"),
+            description: Some(
+                if is_dir {
+                    "file mention dir"
+                } else {
+                    "file mention"
+                }
+                .to_string(),
+            ),
+            style: None,
+            extra: None,
+            span: Span::new(start, end),
+            append_whitespace: false,
+        });
+        if out.len() >= 20 {
+            break;
+        }
+    }
+    out.sort_by(|a, b| a.value.cmp(&b.value));
+    out
+}
+
 #[derive(Clone)]
 pub struct SlashCompleter;
 
 impl Completer for SlashCompleter {
     fn complete(&mut self, line: &str, pos: usize) -> Vec<Suggestion> {
+        let mention_items = mention_suggestions(line, pos);
+        if !mention_items.is_empty() || mention_token_bounds(line, pos).is_some() {
+            return mention_items;
+        }
+
         let prefix = &line[..pos];
+        let argument_items = crate::completer::slash_argument_completions(prefix);
+        if !argument_items.is_empty() {
+            return argument_items
+                .into_iter()
+                .map(|item| Suggestion {
+                    value: item.value,
+                    description: Some(item.description),
+                    style: None,
+                    extra: None,
+                    span: Span::new(0, pos),
+                    append_whitespace: false,
+                })
+                .collect();
+        }
+        if prefix.is_empty() || !prefix.starts_with('/') || prefix.chars().any(char::is_whitespace)
+        {
+            return Vec::new();
+        }
+
         SLASH_COMMANDS
             .iter()
-            .filter(|(cmd, _)| {
-                if prefix.is_empty() {
-                    true
-                } else if prefix.starts_with('/') {
-                    cmd.starts_with(prefix)
-                } else {
-                    cmd.trim_start_matches('/').starts_with(prefix)
-                }
-            })
-            .map(|(cmd, desc)| Suggestion {
-                value: cmd.trim_end().to_string(),
-                description: Some(desc.to_string()),
+            .filter(|spec| spec.matches_prefix(prefix))
+            .map(|spec| Suggestion {
+                value: spec.name.trim_end().to_string(),
+                description: Some(spec.completion_description(false)),
                 style: None,
                 extra: None,
                 span: Span::new(0, pos),
@@ -173,8 +192,6 @@ impl Validator for AlwaysComplete {
 // ── Builder ──
 
 pub fn create_editor(history_path: &std::path::Path) -> Reedline {
-    let buffer_empty: BufferEmpty = Arc::new(AtomicBool::new(true));
-
     let completer = Box::new(SlashCompleter);
 
     let menu = Box::new(
@@ -185,35 +202,20 @@ pub fn create_editor(history_path: &std::path::Path) -> Reedline {
 
     let mut keybindings = default_emacs_keybindings();
 
-    // Tab: open menu or cycle to next item.
-    keybindings.add_binding(
-        KeyModifiers::NONE,
-        KeyCode::Tab,
-        ReedlineEvent::UntilFound(vec![
-            ReedlineEvent::Menu("slash_menu".to_string()),
-            ReedlineEvent::MenuNext,
-        ]),
-    );
+    // Keep reedline's default Tab completion; do not override it with a menu-open
+    // event from an empty input buffer.
     keybindings.add_binding(
         KeyModifiers::SHIFT,
         KeyCode::Tab,
         ReedlineEvent::MenuPrevious,
     );
 
-    let edit_mode = Box::new(SlashEditMode {
-        inner: Emacs::new(keybindings),
-        buffer_empty: buffer_empty.clone(),
-    });
+    let edit_mode = Box::new(Emacs::new(keybindings));
 
     let history = Box::new(
         FileBackedHistory::with_file(1000, history_path.to_path_buf())
             .unwrap_or_else(|_| FileBackedHistory::default()),
     );
-
-    let hinter = Box::new(SlashHinter {
-        inner: DefaultHinter::default(),
-        buffer_empty,
-    });
 
     Reedline::create()
         .with_completer(completer)
@@ -222,7 +224,7 @@ pub fn create_editor(history_path: &std::path::Path) -> Reedline {
         .with_menu(ReedlineMenu::EngineCompleter(menu))
         .with_edit_mode(edit_mode)
         .with_history(history)
-        .with_hinter(hinter)
+        .with_hinter(Box::new(DefaultHinter::default()))
         .use_bracketed_paste(true)
         .with_validator(Box::new(AlwaysComplete))
 }

@@ -246,9 +246,10 @@ impl SelfDevEngine {
     /// Returns whether a rollback should be triggered.
     pub fn should_rollback(&self) -> bool {
         !self.crash_history.is_empty()
-            && self.canary_slot.as_ref().is_some_and(|s| {
-                matches!(s.status, CanaryStatus::Active | CanaryStatus::Promoted)
-            })
+            && self
+                .canary_slot
+                .as_ref()
+                .is_some_and(|s| matches!(s.status, CanaryStatus::Active | CanaryStatus::Promoted))
     }
 
     /// Rolls back to the last known stable build.
@@ -274,13 +275,31 @@ mod tests {
 
     #[test]
     fn test_build_target_from_str_opt() {
-        assert!(matches!(BuildTarget::from_str_opt(Some("aegis")), BuildTarget::Aegis));
-        assert!(matches!(BuildTarget::from_str_opt(Some("all")), BuildTarget::All));
+        assert!(matches!(
+            BuildTarget::from_str_opt(Some("aegis")),
+            BuildTarget::Aegis
+        ));
+        assert!(matches!(
+            BuildTarget::from_str_opt(Some("all")),
+            BuildTarget::All
+        ));
         // Legacy values map to the unified aegis binary (no longer built separately).
-        assert!(matches!(BuildTarget::from_str_opt(Some("worker")), BuildTarget::Aegis));
-        assert!(matches!(BuildTarget::from_str_opt(Some("server")), BuildTarget::Aegis));
-        assert!(matches!(BuildTarget::from_str_opt(None), BuildTarget::Aegis));
-        assert!(matches!(BuildTarget::from_str_opt(Some("unknown")), BuildTarget::Aegis));
+        assert!(matches!(
+            BuildTarget::from_str_opt(Some("worker")),
+            BuildTarget::Aegis
+        ));
+        assert!(matches!(
+            BuildTarget::from_str_opt(Some("server")),
+            BuildTarget::Aegis
+        ));
+        assert!(matches!(
+            BuildTarget::from_str_opt(None),
+            BuildTarget::Aegis
+        ));
+        assert!(matches!(
+            BuildTarget::from_str_opt(Some("unknown")),
+            BuildTarget::Aegis
+        ));
     }
 
     #[test]
@@ -323,7 +342,10 @@ mod tests {
         let mut engine = SelfDevEngine::new(PathBuf::from("/tmp/test-repo"));
         // Crashes alone don't trigger rollback without active canary
         engine.record_crash(CrashInfo {
-            version: "v1".into(), error: "crash".into(), backtrace: None, auto_rollback: false,
+            version: "v1".into(),
+            error: "crash".into(),
+            backtrace: None,
+            auto_rollback: false,
         });
         assert!(!engine.should_rollback());
 
@@ -362,7 +384,10 @@ mod tests {
     async fn test_rollback_no_canary() {
         let mut engine = SelfDevEngine::new(PathBuf::from("/tmp/test-repo"));
         let result = engine.rollback_to_stable("test rollback").await;
-        assert!(result.is_ok(), "rollback succeeds even without canary (noop)");
+        assert!(
+            result.is_ok(),
+            "rollback succeeds even without canary (noop)"
+        );
     }
 
     #[tokio::test]
@@ -376,7 +401,10 @@ mod tests {
         });
         let result = engine.rollback_to_stable("crash detected").await;
         assert!(result.is_ok());
-        assert!(matches!(engine.canary_slot.as_ref().unwrap().status, CanaryStatus::RolledBack));
+        assert!(matches!(
+            engine.canary_slot.as_ref().unwrap().status,
+            CanaryStatus::RolledBack
+        ));
     }
 
     #[tokio::test]
@@ -392,6 +420,9 @@ mod tests {
         engine.observe_duration_secs = 0;
         let promoted = engine.watch_canary().await.unwrap();
         assert!(promoted);
-        assert!(matches!(engine.canary_slot.as_ref().unwrap().status, CanaryStatus::Promoted));
+        assert!(matches!(
+            engine.canary_slot.as_ref().unwrap().status,
+            CanaryStatus::Promoted
+        ));
     }
 }

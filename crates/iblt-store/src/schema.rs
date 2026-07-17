@@ -165,14 +165,20 @@ mod tests {
 
     #[test]
     fn encode_key_raw() {
-        let schema = SchemaDescriptor { key_encoding: KeyEncoding::Raw, ..SchemaDescriptor::default() };
+        let schema = SchemaDescriptor {
+            key_encoding: KeyEncoding::Raw,
+            ..SchemaDescriptor::default()
+        };
         let encoded = schema.encode_key(ColumnFamily::Data, b"hello");
         assert_eq!(encoded, b"hello");
     }
 
     #[test]
     fn encode_key_hex() {
-        let schema = SchemaDescriptor { key_encoding: KeyEncoding::Hex, ..SchemaDescriptor::default() };
+        let schema = SchemaDescriptor {
+            key_encoding: KeyEncoding::Hex,
+            ..SchemaDescriptor::default()
+        };
         let encoded = schema.encode_key(ColumnFamily::Data, b"AB");
         assert_eq!(encoded, b"data:4142");
     }

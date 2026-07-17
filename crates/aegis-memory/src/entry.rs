@@ -1,7 +1,7 @@
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::fmt;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::fmt;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 /// Classifies the kind of information a memory entry represents.
@@ -80,7 +80,12 @@ pub struct MemoryEntry {
 
 impl MemoryEntry {
     /// Create a new memory entry with default confidence (0.8) and user trust.
-    pub fn new(id: impl Into<String>, content: impl Into<String>, category: MemoryCategory, source: impl Into<String>) -> Self {
+    pub fn new(
+        id: impl Into<String>,
+        content: impl Into<String>,
+        category: MemoryCategory,
+        source: impl Into<String>,
+    ) -> Self {
         let now = Utc::now();
         Self {
             id: id.into(),
@@ -201,7 +206,9 @@ impl Default for MemoryGraph {
 impl MemoryGraph {
     /// Create an empty memory graph.
     pub fn new() -> Self {
-        Self { entries: HashMap::new() }
+        Self {
+            entries: HashMap::new(),
+        }
     }
 
     /// Load a graph from a JSON file. Returns an empty graph if the file is
@@ -307,9 +314,7 @@ impl MemoryGraph {
             .map(|(id, e)| (id.clone(), e.effective_confidence()))
             .collect();
         // Lowest confidence first.
-        ranked.sort_by(|a, b| {
-            a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        ranked.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
         let remove_count = self.entries.len() - max_entries;
         for (id, _) in ranked.into_iter().take(remove_count) {
             self.entries.remove(&id);
@@ -332,7 +337,11 @@ impl MemoryGraph {
             .values()
             .filter(|e| e.active && !e.is_expired())
             .map(|e| {
-                let hay = format!("{} {}", e.content.to_lowercase(), e.tags.join(" ").to_lowercase());
+                let hay = format!(
+                    "{} {}",
+                    e.content.to_lowercase(),
+                    e.tags.join(" ").to_lowercase()
+                );
                 (hay, e)
             })
             .collect();
@@ -361,7 +370,10 @@ impl MemoryGraph {
         // Document frequency per term (how many docs contain it).
         let mut df: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
         for t in &terms {
-            let c = docs.iter().filter(|(hay, _)| hay.contains(t.as_str())).count();
+            let c = docs
+                .iter()
+                .filter(|(hay, _)| hay.contains(t.as_str()))
+                .count();
             df.insert(t.as_str(), c);
         }
 
@@ -397,9 +409,11 @@ impl MemoryGraph {
 
     /// Return all entries directly linked to the given entry.
     pub fn linked(&self, id: &str) -> Vec<&MemoryEntry> {
-        self.entries.get(id)
+        self.entries
+            .get(id)
             .map(|e| {
-                e.linked_ids.iter()
+                e.linked_ids
+                    .iter()
                     .filter_map(|lid| self.entries.get(lid))
                     .collect()
             })
@@ -431,7 +445,9 @@ impl MemoryGraph {
     /// Remove inactive entries that have not been accessed in 30 days.
     pub fn prune_inactive(&mut self) -> usize {
         let threshold = Utc::now() - chrono::Duration::days(30);
-        let to_remove: Vec<String> = self.entries.iter()
+        let to_remove: Vec<String> = self
+            .entries
+            .iter()
             .filter(|(_, e)| !e.active && e.accessed_at < threshold)
             .map(|(id, _)| id.clone())
             .collect();
@@ -473,10 +489,10 @@ impl MemoryGraph {
     /// Search entries whose category or trust matches the given tag string.
     pub fn search_by_tag(&self, tag: &str) -> Vec<&MemoryEntry> {
         let tag_lower = tag.to_lowercase();
-        self.entries.values()
+        self.entries
+            .values()
             .filter(|e| {
-                e.category.to_string().to_lowercase().contains(&tag_lower)
-                    || e.trust.is_high()
+                e.category.to_string().to_lowercase().contains(&tag_lower) || e.trust.is_high()
             })
             .collect()
     }
@@ -484,7 +500,9 @@ impl MemoryGraph {
     /// Remove external-trust entries not accessed within `max_age_days`.
     pub fn prune_stale(&mut self, max_age_days: u64) -> usize {
         let threshold = Utc::now() - chrono::Duration::days(max_age_days as i64);
-        let to_remove: Vec<String> = self.entries.iter()
+        let to_remove: Vec<String> = self
+            .entries
+            .iter()
             .filter(|(_, e)| e.trust == TrustLevel::External && e.accessed_at < threshold)
             .map(|(id, _)| id.clone())
             .collect();
@@ -543,7 +561,6 @@ pub fn disk_aware_max_entries(configured: usize, path: &std::path::Path) -> usiz
     }
 }
 
-
 #[cfg(test)]
 mod search_tests {
     use super::*;
@@ -559,7 +576,10 @@ mod search_tests {
         g.insert(entry("2", "user likes Python and Rust"));
         // Whole-query substring would miss this; term overlap recalls it.
         let hits = g.search("backup postgresql database", 5);
-        assert!(hits.iter().any(|e| e.id == "1"), "should recall the postgres/database entry");
+        assert!(
+            hits.iter().any(|e| e.id == "1"),
+            "should recall the postgres/database entry"
+        );
     }
 
     #[test]

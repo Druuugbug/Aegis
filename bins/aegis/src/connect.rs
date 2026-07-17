@@ -66,7 +66,12 @@ fn connect_feishu() -> Result<()> {
     }
     set_gateway_keys(
         "feishu",
-        &[("enabled", "true"), ("app_id", &app_id), ("app_secret", &app_secret), ("mode", "ws")],
+        &[
+            ("enabled", "true"),
+            ("app_id", &app_id),
+            ("app_secret", &app_secret),
+            ("mode", "ws"),
+        ],
     )?;
     started_hint("feishu", "mode=ws 长连接出站，无需公网端口");
     Ok(())
@@ -80,7 +85,12 @@ fn connect_discord() -> Result<()> {
     }
     set_gateway_keys(
         "discord",
-        &[("enabled", "true"), ("bot_token", &token), ("channel_id", &channel), ("mode", "gateway")],
+        &[
+            ("enabled", "true"),
+            ("bot_token", &token),
+            ("channel_id", &channel),
+            ("mode", "gateway"),
+        ],
     )?;
     started_hint("discord", "mode=gateway 实时 WebSocket");
     Ok(())
@@ -115,18 +125,34 @@ fn connect_simplex() -> Result<()> {
          3) 本命令下面会把 [gateway.simplex] 打开（默认连 127.0.0.1:5225）。\n"
     );
     let port = prompt("WS 端口 [5225]").unwrap_or_default();
-    let port = if port.is_empty() { "5225".to_string() } else { port };
+    let port = if port.is_empty() {
+        "5225".to_string()
+    } else {
+        port
+    };
     set_gateway_keys(
         "simplex",
-        &[("enabled", "true"), ("host", "127.0.0.1"), ("port", &port), ("bot_name", "AegisBot")],
+        &[
+            ("enabled", "true"),
+            ("host", "127.0.0.1"),
+            ("port", &port),
+            ("bot_name", "AegisBot"),
+        ],
     )?;
-    started_hint("simplex", "出站连接本地 CLI（端口须保持 127.0.0.1，不可暴露公网）");
+    started_hint(
+        "simplex",
+        "出站连接本地 CLI（端口须保持 127.0.0.1，不可暴露公网）",
+    );
     Ok(())
 }
 
 fn connect_a2a() -> Result<()> {
     let token = read_secret("  Bearer token（留空=不鉴权，强烈建议设置）").unwrap_or_default();
-    let mut kv: Vec<(&str, &str)> = vec![("enabled", "true"), ("host", "127.0.0.1"), ("port", "41241")];
+    let mut kv: Vec<(&str, &str)> = vec![
+        ("enabled", "true"),
+        ("host", "127.0.0.1"),
+        ("port", "41241"),
+    ];
     if !token.is_empty() {
         kv.push(("token", &token));
     }
@@ -163,7 +189,9 @@ fn set_gateway_keys(channel: &str, kv: &[(&str, &str)]) -> Result<()> {
     let mut doc: toml::Value = if existing.trim().is_empty() {
         toml::Value::Table(toml::map::Map::new())
     } else {
-        existing.parse().map_err(|e| anyhow!("解析现有 config.toml 失败: {e}"))?
+        existing
+            .parse()
+            .map_err(|e| anyhow!("解析现有 config.toml 失败: {e}"))?
     };
 
     let root = doc
@@ -178,7 +206,9 @@ fn set_gateway_keys(channel: &str, kv: &[(&str, &str)]) -> Result<()> {
     let ch = gw_tbl
         .entry(channel.to_string())
         .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
-    let ch_tbl = ch.as_table_mut().ok_or_else(|| anyhow!("[gateway.{channel}] 不是 table"))?;
+    let ch_tbl = ch
+        .as_table_mut()
+        .ok_or_else(|| anyhow!("[gateway.{channel}] 不是 table"))?;
 
     for (k, v) in kv {
         let value = match *k {

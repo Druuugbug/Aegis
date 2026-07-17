@@ -1,9 +1,9 @@
-use std::collections::HashMap;
-use std::sync::Arc;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Graph state trait - must be merged when parallel branches complete
 pub trait GraphState: Send + Sync + Clone {
@@ -53,7 +53,11 @@ impl<S: GraphState + 'static> Graph<S> {
 
             // 执行当前节点
             if let Some(node) = self.nodes.get(&current) {
-                tracing::debug!(node = current, iteration = iterations, "executing graph node");
+                tracing::debug!(
+                    node = current,
+                    iteration = iterations,
+                    "executing graph node"
+                );
                 node.execute(state).await?;
             } else if current != NODE_START {
                 return Err(anyhow!("graph node not found: {}", current));
@@ -287,23 +291,35 @@ pub struct LastValue<T> {
 impl<T: Clone + Send + Sync> LastValue<T> {
     /// Create an empty last-value channel.
     pub fn new() -> Self {
-        Self { value: None, consumed: false }
+        Self {
+            value: None,
+            consumed: false,
+        }
     }
     /// Create a last-value channel initialized with a value.
     pub fn with_value(v: T) -> Self {
-        Self { value: Some(v), consumed: false }
+        Self {
+            value: Some(v),
+            consumed: false,
+        }
     }
 }
 
 impl<T: Clone + Send + Sync + Default> Default for LastValue<T> {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
-impl<T: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static> Channel for LastValue<T> {
+impl<T: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static> Channel
+    for LastValue<T>
+{
     type Value = T;
     type Update = T;
 
-    fn get(&self) -> Option<&T> { self.value.as_ref() }
+    fn get(&self) -> Option<&T> {
+        self.value.as_ref()
+    }
 
     fn update(&mut self, updates: Vec<T>) -> bool {
         if let Some(last) = updates.into_iter().last() {
@@ -351,7 +367,12 @@ where
 {
     /// Create an aggregate channel with an initial value and a reducer function.
     pub fn new(init: T, reducer: F) -> Self {
-        Self { value: init, reducer, dirty: false, consumed: false }
+        Self {
+            value: init,
+            reducer,
+            dirty: false,
+            consumed: false,
+        }
     }
 }
 
@@ -363,10 +384,14 @@ where
     type Value = T;
     type Update = T;
 
-    fn get(&self) -> Option<&T> { Some(&self.value) }
+    fn get(&self) -> Option<&T> {
+        Some(&self.value)
+    }
 
     fn update(&mut self, updates: Vec<T>) -> bool {
-        if updates.is_empty() { return false; }
+        if updates.is_empty() {
+            return false;
+        }
         for u in updates {
             // Safety: we need to move self.value out temporarily.
             // We use a dummy clone only as placeholder, then overwrite.
@@ -394,7 +419,9 @@ where
         }
     }
 
-    fn is_available(&self) -> bool { self.dirty && !self.consumed }
+    fn is_available(&self) -> bool {
+        self.dirty && !self.consumed
+    }
 }
 
 /// Topic channel: publish/subscribe queue
@@ -405,21 +432,38 @@ pub struct Topic<T> {
 
 impl<T: Clone + Send + Sync> Topic<T> {
     /// Create an empty topic channel.
-    pub fn new() -> Self { Self { items: vec![], consumed: false } }
+    pub fn new() -> Self {
+        Self {
+            items: vec![],
+            consumed: false,
+        }
+    }
 }
 
 impl<T: Clone + Send + Sync> Default for Topic<T> {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
-impl<T: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static> Channel for Topic<T> {
+impl<T: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static> Channel
+    for Topic<T>
+{
     type Value = Vec<T>;
     type Update = T;
 
-    fn get(&self) -> Option<&Vec<T>> { if self.items.is_empty() { None } else { Some(&self.items) } }
+    fn get(&self) -> Option<&Vec<T>> {
+        if self.items.is_empty() {
+            None
+        } else {
+            Some(&self.items)
+        }
+    }
 
     fn update(&mut self, updates: Vec<T>) -> bool {
-        if updates.is_empty() { return false; }
+        if updates.is_empty() {
+            return false;
+        }
         self.items.extend(updates);
         self.consumed = false;
         true
@@ -441,7 +485,9 @@ impl<T: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static> C
         }
     }
 
-    fn is_available(&self) -> bool { !self.items.is_empty() && !self.consumed }
+    fn is_available(&self) -> bool {
+        !self.items.is_empty() && !self.consumed
+    }
 }
 
 /// Barrier channel: waits for all named sources to write before becoming available
@@ -493,15 +539,23 @@ pub struct Ephemeral<T> {
 
 impl<T: Clone + Send + Sync> Ephemeral<T> {
     /// Create an empty ephemeral channel.
-    pub fn new() -> Self { Self { value: None } }
+    pub fn new() -> Self {
+        Self { value: None }
+    }
     /// Set the ephemeral value.
-    pub fn set(&mut self, v: T) { self.value = Some(v); }
+    pub fn set(&mut self, v: T) {
+        self.value = Some(v);
+    }
     /// Take the value, leaving the channel empty.
-    pub fn take(&mut self) -> Option<T> { self.value.take() }
+    pub fn take(&mut self) -> Option<T> {
+        self.value.take()
+    }
 }
 
 impl<T: Clone + Send + Sync> Default for Ephemeral<T> {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ============================================================
@@ -538,7 +592,9 @@ impl Checkpoint {
 }
 
 impl Default for Checkpoint {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Summary info for listing checkpoints
@@ -576,13 +632,17 @@ pub struct InMemoryCheckpointSaver {
 impl InMemoryCheckpointSaver {
     /// Create a new in-memory checkpoint saver wrapped in an Arc.
     pub fn new() -> Arc<Self> {
-        Arc::new(Self { inner: tokio::sync::Mutex::new(vec![]) })
+        Arc::new(Self {
+            inner: tokio::sync::Mutex::new(vec![]),
+        })
     }
 }
 
 impl Default for InMemoryCheckpointSaver {
     fn default() -> Self {
-        Self { inner: tokio::sync::Mutex::new(vec![]) }
+        Self {
+            inner: tokio::sync::Mutex::new(vec![]),
+        }
     }
 }
 
@@ -599,10 +659,15 @@ impl CheckpointSaver for InMemoryCheckpointSaver {
 
     async fn list(&self, limit: usize) -> Result<Vec<CheckpointMeta>> {
         let guard = self.inner.lock().await;
-        Ok(guard.iter().rev().take(limit).map(|c| CheckpointMeta {
-            id: c.id.clone(),
-            timestamp: c.timestamp,
-        }).collect())
+        Ok(guard
+            .iter()
+            .rev()
+            .take(limit)
+            .map(|c| CheckpointMeta {
+                id: c.id.clone(),
+                timestamp: c.timestamp,
+            })
+            .collect())
     }
 
     async fn latest(&self) -> Result<Option<Checkpoint>> {
@@ -629,7 +694,10 @@ pub enum GraphExecutionResult {
     /// Graph completed normally
     Done,
     /// Graph was interrupted and needs human input
-    Interrupted { interrupt: GraphInterrupt, checkpoint_id: String },
+    Interrupted {
+        interrupt: GraphInterrupt,
+        checkpoint_id: String,
+    },
 }
 
 /// Command to resume an interrupted graph
@@ -653,7 +721,10 @@ pub struct InterruptScratchpad {
 impl InterruptScratchpad {
     /// Create a scratchpad with the given resume values for human-in-the-loop.
     pub fn new(resume_values: Vec<Value>) -> Self {
-        Self { interrupt_counter: 0, resume_values }
+        Self {
+            interrupt_counter: 0,
+            resume_values,
+        }
     }
 
     /// Call this from inside a node to pause for human input.
@@ -666,8 +737,8 @@ impl InterruptScratchpad {
             return Ok(resume_val);
         }
 
-        let serialized = serde_json::to_value(&value)
-            .unwrap_or(Value::String("interrupt".to_string()));
+        let serialized =
+            serde_json::to_value(&value).unwrap_or(Value::String("interrupt".to_string()));
         Err(anyhow::Error::new(InterruptError {
             interrupt: GraphInterrupt {
                 id: uuid::Uuid::new_v4().to_string(),
@@ -770,12 +841,16 @@ impl<S: GraphState + 'static> Graph<S> {
         state: &mut S,
         config: &GraphRunConfig,
     ) -> Result<GraphExecutionResult> {
-        let resume_values = config.resume_command.as_ref()
+        let resume_values = config
+            .resume_command
+            .as_ref()
             .map(|c| vec![c.resume.clone()])
             .unwrap_or_default();
         let mut scratchpad = InterruptScratchpad::new(resume_values);
 
-        let mut current = config.resume_command.as_ref()
+        let mut current = config
+            .resume_command
+            .as_ref()
             .and_then(|c| c.goto.clone())
             .unwrap_or_else(|| self.entry_point.clone());
         let mut iterations = 0;
@@ -800,11 +875,18 @@ impl<S: GraphState + 'static> Graph<S> {
                 } else {
                     "no-checkpoint".to_string()
                 };
-                return Ok(GraphExecutionResult::Interrupted { interrupt, checkpoint_id: cp_id });
+                return Ok(GraphExecutionResult::Interrupted {
+                    interrupt,
+                    checkpoint_id: cp_id,
+                });
             }
 
             if let Some(node) = self.nodes.get(&current) {
-                tracing::debug!(node = current, iteration = iterations, "executing graph node (with config)");
+                tracing::debug!(
+                    node = current,
+                    iteration = iterations,
+                    "executing graph node (with config)"
+                );
                 match node.execute(state).await {
                     Ok(()) => {}
                     Err(e) => {
@@ -817,7 +899,10 @@ impl<S: GraphState + 'static> Graph<S> {
                             } else {
                                 "no-checkpoint".to_string()
                             };
-                            return Ok(GraphExecutionResult::Interrupted { interrupt, checkpoint_id: cp_id });
+                            return Ok(GraphExecutionResult::Interrupted {
+                                interrupt,
+                                checkpoint_id: cp_id,
+                            });
                         }
                         return Err(e);
                     }
@@ -848,7 +933,10 @@ impl<S: GraphState + 'static> Graph<S> {
                 } else {
                     "no-checkpoint".to_string()
                 };
-                return Ok(GraphExecutionResult::Interrupted { interrupt, checkpoint_id: cp_id });
+                return Ok(GraphExecutionResult::Interrupted {
+                    interrupt,
+                    checkpoint_id: cp_id,
+                });
             }
 
             let _ = &mut scratchpad; // suppress unused warning
@@ -908,7 +996,8 @@ impl RetryPolicy {
                         return Err(e);
                     }
                     let delay = (self.initial_delay_ms as f64
-                        * self.backoff_factor.powi(attempt as i32 - 1)) as u64;
+                        * self.backoff_factor.powi(attempt as i32 - 1))
+                        as u64;
                     let jitter_ms = if self.jitter {
                         (delay as f64 * 0.25 * rand_f64(attempt)) as u64
                     } else {
@@ -923,7 +1012,9 @@ impl RetryPolicy {
 
 /// Deterministic pseudo-random float for jitter (avoids pulling in rand crate)
 fn rand_f64(seed: usize) -> f64 {
-    let x = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    let x = seed
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
     (x >> 33) as f64 / (u32::MAX as f64)
 }
 
@@ -988,7 +1079,9 @@ mod tests {
             state.log.push(self.0.clone());
             Ok(())
         }
-        fn name(&self) -> &str { &self.0 }
+        fn name(&self) -> &str {
+            &self.0
+        }
     }
 
     #[test]
@@ -1048,7 +1141,11 @@ mod tests {
             .add_node("path_a", Arc::new(LogNode("path_a".into())))
             .add_node("path_b", Arc::new(LogNode("path_b".into())))
             .add_conditional_edge("decide", |s: &TestState| {
-                if s.log.contains(&"decide".to_string()) { "path_a".into() } else { "path_b".into() }
+                if s.log.contains(&"decide".to_string()) {
+                    "path_a".into()
+                } else {
+                    "path_b".into()
+                }
             })
             .add_edge("path_a", NODE_END)
             .add_edge("path_b", NODE_END)

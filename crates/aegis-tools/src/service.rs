@@ -32,9 +32,7 @@ impl Default for ServiceTool {
 }
 
 const READ_ACTIONS: &[&str] = &["status", "is-active", "is-enabled", "journal", "list"];
-const WRITE_ACTIONS: &[&str] = &[
-    "start", "stop", "restart", "reload", "enable", "disable",
-];
+const WRITE_ACTIONS: &[&str] = &["start", "stop", "restart", "reload", "enable", "disable"];
 
 /// Validate a systemd unit name to prevent argument/command injection.
 fn valid_unit(unit: &str) -> bool {
@@ -90,15 +88,21 @@ impl Tool for ServiceTool {
                 return Ok("Error: 'unit' is required for this action".to_string());
             }
             if !valid_unit(&unit) {
-                return Ok("Error: invalid unit name (allowed: alphanumerics . _ - @ :)".to_string());
+                return Ok(
+                    "Error: invalid unit name (allowed: alphanumerics . _ - @ :)".to_string(),
+                );
             }
         }
 
         // Approval gate for mutating actions (high blast radius).
         if is_write
-            && !ctx.approve(&format!("systemctl {action} {unit} — this changes a live service"))
+            && !ctx.approve(&format!(
+                "systemctl {action} {unit} — this changes a live service"
+            ))
         {
-            return Ok(format!("Service '{action} {unit}' cancelled: user did not approve."));
+            return Ok(format!(
+                "Service '{action} {unit}' cancelled: user did not approve."
+            ));
         }
 
         // Build argv (no shell).
@@ -127,7 +131,10 @@ impl Tool for ServiceTool {
                     "--no-legend".into(),
                 ],
             ),
-            other => ("systemctl", vec![other.into(), unit.clone(), "--no-pager".into()]),
+            other => (
+                "systemctl",
+                vec![other.into(), unit.clone(), "--no-pager".into()],
+            ),
         };
 
         let output = tokio::time::timeout(

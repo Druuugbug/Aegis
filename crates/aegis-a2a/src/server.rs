@@ -13,7 +13,9 @@ use tokio_stream::wrappers::ReceiverStream;
 use crate::{
     auth::ChainAuthProvider,
     task_manager::TaskManager,
-    types::{AgentCard, JsonRpcRequest, JsonRpcResponse, TaskCancelParams, TaskGetParams, TaskSendParams},
+    types::{
+        AgentCard, JsonRpcRequest, JsonRpcResponse, TaskCancelParams, TaskGetParams, TaskSendParams,
+    },
 };
 
 pub struct A2AServer {
@@ -25,7 +27,11 @@ pub struct A2AServer {
 impl A2AServer {
     /// Creates a new `instance`.
     pub fn new(agent_card: AgentCard, task_manager: Arc<dyn TaskManager>) -> Self {
-        Self { agent_card, task_manager, auth: None }
+        Self {
+            agent_card,
+            task_manager,
+            auth: None,
+        }
     }
 
     /// Enables authentication for this instance.
@@ -151,9 +157,7 @@ async fn handle_jsonrpc(
                 Err(e) => json_err(req.id, -32000, e.to_string()).into_response(),
             }
         }
-        "agent/getAuthenticatedExtendedCard" => {
-            json_ok(req.id, &server.agent_card).into_response()
-        }
+        "agent/getAuthenticatedExtendedCard" => json_ok(req.id, &server.agent_card).into_response(),
         _ => json_err(req.id, -32601, "Method not found").into_response(),
     }
 }
@@ -168,6 +172,10 @@ fn json_ok<T: serde::Serialize>(id: Option<serde_json::Value>, val: T) -> Json<J
     Json(JsonRpcResponse::ok(id, result))
 }
 
-fn json_err(id: Option<serde_json::Value>, code: i32, msg: impl Into<String>) -> Json<JsonRpcResponse> {
+fn json_err(
+    id: Option<serde_json::Value>,
+    code: i32,
+    msg: impl Into<String>,
+) -> Json<JsonRpcResponse> {
     Json(JsonRpcResponse::err(id, code, msg))
 }

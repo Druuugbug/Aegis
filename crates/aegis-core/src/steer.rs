@@ -35,8 +35,7 @@ impl SteerManager {
     /// Remove by id (prefix match allowed). Returns true if found and removed.
     pub fn remove(&mut self, id: &str) -> bool {
         let before = self.instructions.len();
-        self.instructions
-            .retain(|i| !i.id.starts_with(id));
+        self.instructions.retain(|i| !i.id.starts_with(id));
         self.instructions.len() < before
     }
 

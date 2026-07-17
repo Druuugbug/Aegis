@@ -114,56 +114,298 @@ impl Artifact {
 }
 
 /// Static definition row: `(name, rel, root, kind, durable, sensitive, desc)`.
-type Row = (&'static str, &'static str, Root, ArtifactKind, bool, bool, &'static str);
+type Row = (
+    &'static str,
+    &'static str,
+    Root,
+    ArtifactKind,
+    bool,
+    bool,
+    &'static str,
+);
 
 /// The authoritative table. `path` is resolved at call time in [`all`].
 const ROWS: &[Row] = &[
     // ── Root A: config_dir() ──────────────────────────────────────────────
-    ("config", "config.toml", Root::ConfigDir, ArtifactKind::Config, true, false, "User configuration (may contain api_key)"),
-    ("soul", "SOUL.md", Root::ConfigDir, ArtifactKind::Config, true, false, "User identity / persona"),
-    ("filters", "filters.toml", Root::ConfigDir, ArtifactKind::Config, true, false, "Output filter rules"),
-    ("tools", "tools.d", Root::ConfigDir, ArtifactKind::Config, true, false, "Custom tool scripts"),
-    ("peers_trust", "peers_trust.toml", Root::ConfigDir, ArtifactKind::Config, true, false, "A2A peer trust levels"),
-    ("memory", "memory", Root::ConfigDir, ArtifactKind::Memory, true, false, "Main memory graph"),
-    ("mempalace", "mempalace", Root::ConfigDir, ArtifactKind::Memory, true, false, "Mempalace memory taxonomy"),
-    ("strategies", "strategies", Root::ConfigDir, ArtifactKind::Skills, true, false, "Strategies + skills"),
-    ("goals", "goals", Root::ConfigDir, ArtifactKind::Goals, true, false, "Long-term goals"),
-    ("sessions", "sessions.db", Root::ConfigDir, ArtifactKind::Sessions, true, false, "Session history database"),
-    ("imports", "imports", Root::ConfigDir, ArtifactKind::Cache, false, false, "Imported external sessions"),
-    ("overnight", "overnight", Root::ConfigDir, ArtifactKind::Cache, false, false, "Overnight run records"),
-    ("backups", "backups", Root::ConfigDir, ArtifactKind::Cache, false, false, "Backup output dir (not self-backed-up)"),
-    ("logs", "logs", Root::ConfigDir, ArtifactKind::Logs, false, false, "Run + audit logs"),
-    ("trash", "trash", Root::ConfigDir, ArtifactKind::Runtime, false, false, "Recoverable-delete trash"),
-    ("snapshots", "snapshots", Root::ConfigDir, ArtifactKind::Runtime, false, false, "Working-dir snapshots"),
-    ("bin", "bin", Root::ConfigDir, ArtifactKind::Runtime, false, false, "PATH shim dir (rm→trash)"),
-    ("gateway_sock", "gateway.sock", Root::ConfigDir, ArtifactKind::Runtime, false, false, "Gateway control socket (transient)"),
-    ("gateway_lock", "gateway.lock", Root::ConfigDir, ArtifactKind::Runtime, false, false, "Single-instance lock (transient)"),
-    ("readline_history", "readline_history", Root::ConfigDir, ArtifactKind::Runtime, false, false, "REPL input history"),
-    ("swap_state", "swap-state.json", Root::ConfigDir, ArtifactKind::Runtime, false, false, "Self-upgrade swap state"),
-    ("update_check", "update_check.json", Root::ConfigDir, ArtifactKind::Cache, false, false, "Update-check cache"),
+    (
+        "config",
+        "config.toml",
+        Root::ConfigDir,
+        ArtifactKind::Config,
+        true,
+        false,
+        "User configuration (may contain api_key)",
+    ),
+    (
+        "soul",
+        "SOUL.md",
+        Root::ConfigDir,
+        ArtifactKind::Config,
+        true,
+        false,
+        "User identity / persona",
+    ),
+    (
+        "filters",
+        "filters.toml",
+        Root::ConfigDir,
+        ArtifactKind::Config,
+        true,
+        false,
+        "Output filter rules",
+    ),
+    (
+        "tools",
+        "tools.d",
+        Root::ConfigDir,
+        ArtifactKind::Config,
+        true,
+        false,
+        "Custom tool scripts",
+    ),
+    (
+        "peers_trust",
+        "peers_trust.toml",
+        Root::ConfigDir,
+        ArtifactKind::Config,
+        true,
+        false,
+        "A2A peer trust levels",
+    ),
+    (
+        "memory",
+        "memory",
+        Root::ConfigDir,
+        ArtifactKind::Memory,
+        true,
+        false,
+        "Main memory graph",
+    ),
+    (
+        "mempalace",
+        "mempalace",
+        Root::ConfigDir,
+        ArtifactKind::Memory,
+        true,
+        false,
+        "Mempalace memory taxonomy",
+    ),
+    (
+        "strategies",
+        "strategies",
+        Root::ConfigDir,
+        ArtifactKind::Skills,
+        true,
+        false,
+        "Strategies + skills",
+    ),
+    (
+        "goals",
+        "goals",
+        Root::ConfigDir,
+        ArtifactKind::Goals,
+        true,
+        false,
+        "Long-term goals",
+    ),
+    (
+        "sessions",
+        "sessions.db",
+        Root::ConfigDir,
+        ArtifactKind::Sessions,
+        true,
+        false,
+        "Session history database",
+    ),
+    (
+        "imports",
+        "imports",
+        Root::ConfigDir,
+        ArtifactKind::Cache,
+        false,
+        false,
+        "Imported external sessions",
+    ),
+    (
+        "overnight",
+        "overnight",
+        Root::ConfigDir,
+        ArtifactKind::Cache,
+        false,
+        false,
+        "Overnight run records",
+    ),
+    (
+        "backups",
+        "backups",
+        Root::ConfigDir,
+        ArtifactKind::Cache,
+        false,
+        false,
+        "Backup output dir (not self-backed-up)",
+    ),
+    (
+        "logs",
+        "logs",
+        Root::ConfigDir,
+        ArtifactKind::Logs,
+        false,
+        false,
+        "Run + audit logs",
+    ),
+    (
+        "trash",
+        "trash",
+        Root::ConfigDir,
+        ArtifactKind::Runtime,
+        false,
+        false,
+        "Recoverable-delete trash",
+    ),
+    (
+        "snapshots",
+        "snapshots",
+        Root::ConfigDir,
+        ArtifactKind::Runtime,
+        false,
+        false,
+        "Working-dir snapshots",
+    ),
+    (
+        "bin",
+        "bin",
+        Root::ConfigDir,
+        ArtifactKind::Runtime,
+        false,
+        false,
+        "PATH shim dir (rm→trash)",
+    ),
+    (
+        "gateway_sock",
+        "gateway.sock",
+        Root::ConfigDir,
+        ArtifactKind::Runtime,
+        false,
+        false,
+        "Gateway control socket (transient)",
+    ),
+    (
+        "gateway_lock",
+        "gateway.lock",
+        Root::ConfigDir,
+        ArtifactKind::Runtime,
+        false,
+        false,
+        "Single-instance lock (transient)",
+    ),
+    (
+        "readline_history",
+        "readline_history",
+        Root::ConfigDir,
+        ArtifactKind::Runtime,
+        false,
+        false,
+        "REPL input history",
+    ),
+    (
+        "swap_state",
+        "swap-state.json",
+        Root::ConfigDir,
+        ArtifactKind::Runtime,
+        false,
+        false,
+        "Self-upgrade swap state",
+    ),
+    (
+        "update_check",
+        "update_check.json",
+        Root::ConfigDir,
+        ArtifactKind::Cache,
+        false,
+        false,
+        "Update-check cache",
+    ),
     // ── Formerly hardcoded ~/.aegis, now unified under config_dir() ───────
-    ("secrets", "secrets.json", Root::ConfigDir, ArtifactKind::Secrets, true, true, "Credential vault (excluded from backup by default)"),
-    ("peers", "peers.json", Root::ConfigDir, ArtifactKind::Config, true, false, "A2A peers"),
-    ("remotes", "remotes.json", Root::ConfigDir, ArtifactKind::Config, true, true, "SSH remotes (may contain passwords)"),
-    ("checkpoints", "checkpoints", Root::ConfigDir, ArtifactKind::Runtime, false, false, "Pre-write file checkpoints"),
-    ("wal", "wal", Root::ConfigDir, ArtifactKind::Memory, false, false, "Memory write-ahead log"),
-    ("intervene", "intervene.txt", Root::ConfigDir, ArtifactKind::Runtime, false, false, "Channel intervention file"),
-    ("keyinfo", "keyinfo.txt", Root::ConfigDir, ArtifactKind::Runtime, false, false, "Channel key-info file"),
+    (
+        "secrets",
+        "secrets.json",
+        Root::ConfigDir,
+        ArtifactKind::Secrets,
+        true,
+        true,
+        "Credential vault (excluded from backup by default)",
+    ),
+    (
+        "peers",
+        "peers.json",
+        Root::ConfigDir,
+        ArtifactKind::Config,
+        true,
+        false,
+        "A2A peers",
+    ),
+    (
+        "remotes",
+        "remotes.json",
+        Root::ConfigDir,
+        ArtifactKind::Config,
+        true,
+        true,
+        "SSH remotes (may contain passwords)",
+    ),
+    (
+        "checkpoints",
+        "checkpoints",
+        Root::ConfigDir,
+        ArtifactKind::Runtime,
+        false,
+        false,
+        "Pre-write file checkpoints",
+    ),
+    (
+        "wal",
+        "wal",
+        Root::ConfigDir,
+        ArtifactKind::Memory,
+        false,
+        false,
+        "Memory write-ahead log",
+    ),
+    (
+        "intervene",
+        "intervene.txt",
+        Root::ConfigDir,
+        ArtifactKind::Runtime,
+        false,
+        false,
+        "Channel intervention file",
+    ),
+    (
+        "keyinfo",
+        "keyinfo.txt",
+        Root::ConfigDir,
+        ArtifactKind::Runtime,
+        false,
+        false,
+        "Channel key-info file",
+    ),
 ];
 
 /// All known artifacts (Root A + Root B), with resolved absolute paths.
 pub fn all() -> Vec<Artifact> {
     ROWS.iter()
-        .map(|&(name, rel, root, kind, durable, sensitive, description)| Artifact {
-            name,
-            rel,
-            root,
-            path: root.base().join(rel),
-            kind,
-            durable,
-            sensitive,
-            description,
-        })
+        .map(
+            |&(name, rel, root, kind, durable, sensitive, description)| Artifact {
+                name,
+                rel,
+                root,
+                path: root.base().join(rel),
+                kind,
+                durable,
+                sensitive,
+                description,
+            },
+        )
         .collect()
 }
 
@@ -245,8 +487,9 @@ pub fn external_probe() -> Vec<ExternalArtifact> {
                     name: "git_worktree",
                     path: e.path(),
                     present: true,
-                    description: "leftover sub-agent git worktree — `git worktree remove` in the source repo"
-                        .to_string(),
+                    description:
+                        "leftover sub-agent git worktree — `git worktree remove` in the source repo"
+                            .to_string(),
                 });
             }
         }
@@ -262,7 +505,11 @@ mod tests {
     #[test]
     fn all_rows_resolve_absolute_paths() {
         for a in all() {
-            assert!(a.path.is_absolute() || a.path.starts_with("."), "{}", a.name);
+            assert!(
+                a.path.is_absolute() || a.path.starts_with("."),
+                "{}",
+                a.name
+            );
             assert!(!a.name.is_empty());
             assert!(!a.rel.is_empty());
         }

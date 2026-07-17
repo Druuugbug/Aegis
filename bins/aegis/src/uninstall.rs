@@ -84,7 +84,11 @@ pub fn run_artifacts(json: bool) -> Result<()> {
                 e.present
             ));
         }
-        println!("{{\"artifacts\":[{}],\"external\":[{}]}}", items.join(","), ext.join(","));
+        println!(
+            "{{\"artifacts\":[{}],\"external\":[{}]}}",
+            items.join(","),
+            ext.join(",")
+        );
         return Ok(());
     }
 
@@ -101,7 +105,11 @@ pub fn run_artifacts(json: bool) -> Result<()> {
             a.kind.as_str(),
             a.root.as_str(),
             if exists { "yes" } else { "-" },
-            if exists { human_size(path_size(&a.path)) } else { "-".to_string() },
+            if exists {
+                human_size(path_size(&a.path))
+            } else {
+                "-".to_string()
+            },
             a.path.display(),
             if a.sensitive { "  [sensitive]" } else { "" }
         );
@@ -173,7 +181,10 @@ pub fn run(
     let cfg_dir = aegis_core::config::config_dir();
 
     if !cfg_dir.exists() {
-        println!("Aegis 配置目录不存在（{}），无需卸载数据。", cfg_dir.display());
+        println!(
+            "Aegis 配置目录不存在（{}），无需卸载数据。",
+            cfg_dir.display()
+        );
         maybe_remove_binary(dry_run);
         return Ok(());
     }
@@ -182,7 +193,12 @@ pub fn run(
     let plan = if yes {
         // Non-interactive: flags decide. `--purge` forces keep-nothing.
         if purge {
-            KeepPlan { memory: false, skills: false, sessions: false, goals: false }
+            KeepPlan {
+                memory: false,
+                skills: false,
+                sessions: false,
+                goals: false,
+            }
         } else {
             KeepPlan {
                 memory: keep_memory,
@@ -245,7 +261,9 @@ pub fn run(
     for p in &to_remove {
         println!(
             "    - {}",
-            p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+            p.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default()
         );
     }
 
@@ -279,7 +297,14 @@ pub fn run(
         let _ = std::fs::remove_dir_all(&cfg_dir);
     }
 
-    println!("\n已删除 {removed} 项{}。", if failed > 0 { format!("，{failed} 项失败") } else { String::new() });
+    println!(
+        "\n已删除 {removed} 项{}。",
+        if failed > 0 {
+            format!("，{failed} 项失败")
+        } else {
+            String::new()
+        }
+    );
     if plan.keeps_anything() {
         println!("保留的数据仍在 {}。", cfg_dir.display());
     }
@@ -294,7 +319,12 @@ pub fn run(
     if !present.is_empty() {
         println!("\n检测到以下外部产物（需手动处理）：");
         for e in present {
-            println!("  - {} ({})\n      └ {}", e.name, e.path.display(), e.description);
+            println!(
+                "  - {} ({})\n      └ {}",
+                e.name,
+                e.path.display(),
+                e.description
+            );
         }
     }
 
@@ -313,7 +343,12 @@ fn prompt_plan() -> Option<KeepPlan> {
         "\n其余状态（config.toml / peers.json / remotes.json / secrets.json / logs / trash / snapshots）\
          将被删除，且不可恢复（不做备份）。"
     );
-    Some(KeepPlan { memory, skills, sessions, goals })
+    Some(KeepPlan {
+        memory,
+        skills,
+        sessions,
+        goals,
+    })
 }
 
 /// One keep/remove question. `true` = keep, `false` = remove. `None` = cancel.

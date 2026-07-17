@@ -1,7 +1,6 @@
 /// Permission Rule DSL System
 /// Implements 5-level permission modes + pattern-matching rules
 /// DSL syntax: "bash", "bash(*)", "bash(path:~/project/*)"
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -59,20 +58,67 @@ pub enum Decision {
 
 /// Read-only bash commands that auto-downgrade to ReadOnly
 const READONLY_COMMANDS: &[&str] = &[
-    "cat", "ls", "ll", "la", "echo", "grep", "rg", "find", "fd", "head", "tail",
-    "wc", "sort", "uniq", "cut", "awk", "sed", "diff", "stat", "file", "which",
-    "whereis", "type", "pwd", "date", "whoami", "id", "uname", "env", "printenv",
-    "ps", "top", "htop", "df", "du", "free", "uptime", "hostname", "ping",
-    "curl -s", "curl --silent", "wget -q",
-    "git log", "git status", "git diff", "git show", "git branch",
-    "cargo check", "cargo clippy", "cargo test", "cargo build",
+    "cat",
+    "ls",
+    "ll",
+    "la",
+    "echo",
+    "grep",
+    "rg",
+    "find",
+    "fd",
+    "head",
+    "tail",
+    "wc",
+    "sort",
+    "uniq",
+    "cut",
+    "awk",
+    "sed",
+    "diff",
+    "stat",
+    "file",
+    "which",
+    "whereis",
+    "type",
+    "pwd",
+    "date",
+    "whoami",
+    "id",
+    "uname",
+    "env",
+    "printenv",
+    "ps",
+    "top",
+    "htop",
+    "df",
+    "du",
+    "free",
+    "uptime",
+    "hostname",
+    "ping",
+    "curl -s",
+    "curl --silent",
+    "wget -q",
+    "git log",
+    "git status",
+    "git diff",
+    "git show",
+    "git branch",
+    "cargo check",
+    "cargo clippy",
+    "cargo test",
+    "cargo build",
 ];
 
 /// Check if a bash command is read-only (first token matches known safe commands)
 pub fn is_readonly_bash(command: &str) -> bool {
     let cmd = command.trim();
     for ro in READONLY_COMMANDS {
-        if cmd == *ro || cmd.starts_with(&format!("{} ", ro)) || cmd.starts_with(&format!("{}\t", ro)) {
+        if cmd == *ro
+            || cmd.starts_with(&format!("{} ", ro))
+            || cmd.starts_with(&format!("{}\t", ro))
+        {
             return true;
         }
     }
@@ -120,7 +166,9 @@ pub fn wildcard_match(pattern: &str, text: &str) -> bool {
     let mut star_ti = 0usize;
 
     while ti < text_bytes.len() {
-        if pi < pattern_bytes.len() && (pattern_bytes[pi] == b'?' || pattern_bytes[pi] == text_bytes[ti]) {
+        if pi < pattern_bytes.len()
+            && (pattern_bytes[pi] == b'?' || pattern_bytes[pi] == text_bytes[ti])
+        {
             pi += 1;
             ti += 1;
         } else if pi < pattern_bytes.len() && pattern_bytes[pi] == b'*' {
@@ -172,12 +220,14 @@ impl PermissionRule {
         // Try to extract parameter from input
         let param_value = if let Some(ref key) = self.param_key {
             // "bash(path:*)" -> look for input["path"] or input["command"] etc.
-            input.get(key)
+            input
+                .get(key)
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
         } else {
             // No key: try "command", "path", first string field
-            input.get("command")
+            input
+                .get("command")
                 .or_else(|| input.get("path"))
                 .or_else(|| input.get("input"))
                 .and_then(|v| v.as_str())
@@ -206,7 +256,8 @@ impl PermissionRule {
 pub fn evaluate_permission(tool: &str, input: &Value, rules: &[PermissionRule]) -> Decision {
     // For bash, detect effective mode from command
     let _effective_mode = if tool == "bash" || tool == "terminal" {
-        let cmd = input.get("command")
+        let cmd = input
+            .get("command")
             .or_else(|| input.get("cmd"))
             .and_then(|v| v.as_str())
             .unwrap_or("");
@@ -268,7 +319,9 @@ fn parse_mode(s: &str) -> Option<PermissionMode> {
     match s.to_lowercase().as_str() {
         "readonly" | "read_only" => Some(PermissionMode::ReadOnly),
         "workspacewrite" | "workspace_write" => Some(PermissionMode::WorkspaceWrite),
-        "dangerfullaccess" | "danger_full_access" | "full_access" => Some(PermissionMode::DangerFullAccess),
+        "dangerfullaccess" | "danger_full_access" | "full_access" => {
+            Some(PermissionMode::DangerFullAccess)
+        }
         "prompt" => Some(PermissionMode::Prompt),
         "allow" => Some(PermissionMode::Allow),
         _ => None,
@@ -318,8 +371,14 @@ mod tests {
 
     #[test]
     fn test_classify_bash_mode() {
-        assert_eq!(classify_bash_mode("cat /etc/hosts"), PermissionMode::ReadOnly);
-        assert_eq!(classify_bash_mode("rm file"), PermissionMode::WorkspaceWrite);
+        assert_eq!(
+            classify_bash_mode("cat /etc/hosts"),
+            PermissionMode::ReadOnly
+        );
+        assert_eq!(
+            classify_bash_mode("rm file"),
+            PermissionMode::WorkspaceWrite
+        );
     }
 
     #[test]
@@ -344,9 +403,11 @@ mod tests {
 
     #[test]
     fn test_evaluate_permission_allow() {
-        let rules = vec![
-            PermissionRule::new("bash", PermissionMode::ReadOnly, RuleAction::Allow),
-        ];
+        let rules = vec![PermissionRule::new(
+            "bash",
+            PermissionMode::ReadOnly,
+            RuleAction::Allow,
+        )];
         let input = json!({"command": "cat file.txt"});
         assert_eq!(evaluate_permission("bash", &input, &rules), Decision::Allow);
     }

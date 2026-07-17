@@ -96,7 +96,10 @@ impl Tool for RemoteTool {
                     args["host"].as_str().unwrap_or("").trim().to_string(),
                     args["user"].as_str().unwrap_or("").trim().to_string(),
                     args["port"].as_u64().unwrap_or(22),
-                    args["password"].as_str().filter(|p| !p.is_empty()).map(|s| s.to_string()),
+                    args["password"]
+                        .as_str()
+                        .filter(|p| !p.is_empty())
+                        .map(|s| s.to_string()),
                 )
             };
         let host = host.as_str();
@@ -115,7 +118,10 @@ impl Tool for RemoteTool {
                 args["remote"].as_str().unwrap_or("?")
             ),
             "check" => format!("check connectivity to {target}"),
-            _ => format!("run on {target}: {}", args["command"].as_str().unwrap_or("")),
+            _ => format!(
+                "run on {target}: {}",
+                args["command"].as_str().unwrap_or("")
+            ),
         };
         if !ctx.approve(&format!("⚠️ REMOTE SSH ({host}): {what}")) {
             return Ok("Remote action blocked: user denied.".to_string());

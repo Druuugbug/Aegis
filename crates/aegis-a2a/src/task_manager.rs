@@ -211,23 +211,25 @@ mod tests {
         };
         mgr.on_send(params).await.unwrap();
 
-        let retrieved = mgr.on_get(TaskGetParams {
-            id: "task-2".into(),
-            history_length: None,
-        })
-        .await
-        .unwrap();
+        let retrieved = mgr
+            .on_get(TaskGetParams {
+                id: "task-2".into(),
+                history_length: None,
+            })
+            .await
+            .unwrap();
         assert_eq!(retrieved.id, "task-2");
     }
 
     #[tokio::test]
     async fn test_on_get_nonexistent_fails() {
         let mgr = InMemoryTaskManager::new();
-        let result = mgr.on_get(TaskGetParams {
-            id: "nonexistent".into(),
-            history_length: None,
-        })
-        .await;
+        let result = mgr
+            .on_get(TaskGetParams {
+                id: "nonexistent".into(),
+                history_length: None,
+            })
+            .await;
         assert!(result.is_err());
     }
 
@@ -243,12 +245,13 @@ mod tests {
         };
         mgr.on_send(params).await.unwrap();
 
-        let cancelled = mgr.on_cancel(TaskCancelParams {
-            id: "task-3".into(),
-            metadata: None,
-        })
-        .await
-        .unwrap();
+        let cancelled = mgr
+            .on_cancel(TaskCancelParams {
+                id: "task-3".into(),
+                metadata: None,
+            })
+            .await
+            .unwrap();
         assert_eq!(cancelled.status.state, TaskState::Canceled);
     }
 
@@ -273,22 +276,24 @@ mod tests {
         .unwrap();
 
         // Second cancel should fail (Canceled -> Canceled is not valid)
-        let result = mgr.on_cancel(TaskCancelParams {
-            id: "task-4".into(),
-            metadata: None,
-        })
-        .await;
+        let result = mgr
+            .on_cancel(TaskCancelParams {
+                id: "task-4".into(),
+                metadata: None,
+            })
+            .await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_cancel_nonexistent_fails() {
         let mgr = InMemoryTaskManager::new();
-        let result = mgr.on_cancel(TaskCancelParams {
-            id: "nope".into(),
-            metadata: None,
-        })
-        .await;
+        let result = mgr
+            .on_cancel(TaskCancelParams {
+                id: "nope".into(),
+                metadata: None,
+            })
+            .await;
         assert!(result.is_err());
     }
 }

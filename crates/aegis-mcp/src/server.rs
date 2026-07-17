@@ -8,7 +8,9 @@ use std::sync::Arc;
 use crate::resource::ResourceProvider;
 
 type ToolHandler = Arc<
-    dyn Fn(String, Value) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>> + Send + Sync,
+    dyn Fn(String, Value) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>>
+        + Send
+        + Sync,
 >;
 
 pub struct McpServer {
@@ -23,12 +25,20 @@ impl McpServer {
         let handler: ToolHandler = Arc::new(|name, _args| {
             Box::pin(async move { Err(anyhow::anyhow!("Tool not implemented: {name}")) })
         });
-        Self { tools, handler, resource_providers: Vec::new() }
+        Self {
+            tools,
+            handler,
+            resource_providers: Vec::new(),
+        }
     }
 
     /// Create a new MCP server with a custom tool-call handler.
     pub fn with_handler(tools: Vec<Value>, handler: ToolHandler) -> Self {
-        Self { tools, handler, resource_providers: Vec::new() }
+        Self {
+            tools,
+            handler,
+            resource_providers: Vec::new(),
+        }
     }
 
     /// Register a resource provider for the `resources/list` and `resources/read` methods.
@@ -75,14 +85,18 @@ impl McpServer {
                     }
                 }
                 "resources/list" => {
-                    let resources: Vec<Value> = self.resource_providers.iter()
+                    let resources: Vec<Value> = self
+                        .resource_providers
+                        .iter()
                         .flat_map(|p| p.list())
-                        .map(|r| serde_json::json!({
-                            "uri": r.uri,
-                            "name": r.name,
-                            "description": r.description,
-                            "mimeType": r.mime_type,
-                        }))
+                        .map(|r| {
+                            serde_json::json!({
+                                "uri": r.uri,
+                                "name": r.name,
+                                "description": r.description,
+                                "mimeType": r.mime_type,
+                            })
+                        })
                         .collect();
                     serde_json::json!({"resources": resources})
                 }
@@ -92,7 +106,10 @@ impl McpServer {
                     for provider in &self.resource_providers {
                         if provider.list().iter().any(|r| r.uri == uri) {
                             match provider.read(uri).await {
-                                Ok(text) => { content = Some(text); break; }
+                                Ok(text) => {
+                                    content = Some(text);
+                                    break;
+                                }
                                 Err(e) => {
                                     content = Some(format!("Error: {e}"));
                                     break;
@@ -159,9 +176,8 @@ mod tests {
     #[test]
     fn test_server_with_handler() {
         let tools = vec![];
-        let handler: ToolHandler = Arc::new(|_name, _args| {
-            Box::pin(async { Ok("handled".to_string()) })
-        });
+        let handler: ToolHandler =
+            Arc::new(|_name, _args| Box::pin(async { Ok("handled".to_string()) }));
         let server = McpServer::with_handler(tools, handler);
         assert!(server.tools().is_empty());
     }

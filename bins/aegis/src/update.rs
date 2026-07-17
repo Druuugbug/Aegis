@@ -15,7 +15,11 @@ pub(crate) fn is_newer(latest: &str, current: &str) -> bool {
     let parse = |s: &str| -> Vec<u64> {
         s.trim_start_matches('v')
             .split(|c: char| c == '.' || c == '-' || c == '+')
-            .map(|p| p.chars().take_while(|c| c.is_ascii_digit()).collect::<String>())
+            .map(|p| {
+                p.chars()
+                    .take_while(|c| c.is_ascii_digit())
+                    .collect::<String>()
+            })
             .map(|p| p.parse::<u64>().unwrap_or(0))
             .collect()
     };
@@ -45,7 +49,9 @@ pub(crate) async fn fetch_latest_tag(repo: &str) -> Option<String> {
         return None;
     }
     let v: serde_json::Value = resp.json().await.ok()?;
-    v.get("tag_name").and_then(|x| x.as_str()).map(|s| s.to_string())
+    v.get("tag_name")
+        .and_then(|x| x.as_str())
+        .map(|s| s.to_string())
 }
 
 /// Returns an update notice line if a newer release exists, else `None`.
@@ -68,7 +74,9 @@ pub async fn check_update_notice() -> Option<String> {
             .and_then(|v| {
                 let t = v.get("checked_at").and_then(|x| x.as_str())?;
                 let latest = v.get("latest").and_then(|x| x.as_str())?.to_string();
-                let t = chrono::DateTime::parse_from_rfc3339(t).ok()?.with_timezone(&chrono::Utc);
+                let t = chrono::DateTime::parse_from_rfc3339(t)
+                    .ok()?
+                    .with_timezone(&chrono::Utc);
                 Some((t, latest))
             });
 

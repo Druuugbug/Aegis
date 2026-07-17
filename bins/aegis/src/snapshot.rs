@@ -108,7 +108,11 @@ pub fn snapshot_cwd(session: &str, command: &str) -> i32 {
                 "bytes": bytes,
             });
             let _ = std::fs::write(dir.join("meta.json"), meta.to_string());
-            prune(cfg.as_ref().map(|c| c.security.snapshot_store_mb).unwrap_or(1024));
+            prune(
+                cfg.as_ref()
+                    .map(|c| c.security.snapshot_store_mb)
+                    .unwrap_or(1024),
+            );
         }
         _ => {
             let _ = std::fs::remove_dir_all(&dir);
@@ -225,7 +229,10 @@ pub fn run_snapshot(action: SnapshotAction) -> Result<()> {
                         .arg(&dest)
                         .status()?;
                     if status.success() {
-                        println!("restored snapshot {} → {} (extracted over existing files)", id, e.cwd);
+                        println!(
+                            "restored snapshot {} → {} (extracted over existing files)",
+                            id, e.cwd
+                        );
                     } else {
                         anyhow::bail!("tar extract failed");
                     }

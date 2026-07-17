@@ -14,9 +14,10 @@ pub struct SessionStore {
 
 // ── Schema migrations ──
 
-const MIGRATIONS: &[(&str, &str)] = &[(
-    "001_initial",
-    r#"
+const MIGRATIONS: &[(&str, &str)] = &[
+    (
+        "001_initial",
+        r#"
 CREATE TABLE IF NOT EXISTS sessions (
     id              TEXT PRIMARY KEY,
     title           TEXT,
@@ -68,7 +69,7 @@ CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
     VALUES (new.id, new.content, new.session_id, new.role);
 END;
 "#,
-),
+    ),
     (
         "002_usage_ledger",
         r#"
@@ -607,12 +608,24 @@ impl RecordStore {
     }
 
     /// Inserts a new record into the store.
-    pub fn insert(&self, session_id: &str, role: &str, content: Option<&str>, record_type: RecordType) -> Result<()> {
+    pub fn insert(
+        &self,
+        session_id: &str,
+        role: &str,
+        content: Option<&str>,
+        record_type: RecordType,
+    ) -> Result<()> {
         retry_busy(|| {
             self.conn.execute(
                 "INSERT INTO messages (session_id, role, content, record_type, timestamp)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![session_id, role, content, record_type.as_str(), Utc::now().to_rfc3339()],
+                params![
+                    session_id,
+                    role,
+                    content,
+                    record_type.as_str(),
+                    Utc::now().to_rfc3339()
+                ],
             )
         })?;
         Ok(())
@@ -643,14 +656,14 @@ impl RecordStore {
 
     /// Returns aggregate statistics for the store.
     pub fn stats(&self) -> Result<RecordStats> {
-        let total: u64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM messages", [], |row| row.get(0),
-        )?;
+        let total: u64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM messages", [], |row| row.get(0))?;
 
         let mut by_type = HashMap::new();
-        let mut stmt = self.conn.prepare(
-            "SELECT record_type, COUNT(*) FROM messages GROUP BY record_type",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT record_type, COUNT(*) FROM messages GROUP BY record_type")?;
         let rows = stmt.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
         })?;
@@ -659,19 +672,30 @@ impl RecordStore {
             by_type.insert(rt, count);
         }
 
-        let oldest: Option<DateTime<Utc>> = self.conn
-            .query_row("SELECT MIN(timestamp) FROM messages", [], |row| row.get::<_, Option<String>>(0))
+        let oldest: Option<DateTime<Utc>> = self
+            .conn
+            .query_row("SELECT MIN(timestamp) FROM messages", [], |row| {
+                row.get::<_, Option<String>>(0)
+            })
             .ok()
             .flatten()
             .and_then(|s| s.parse().ok());
 
-        let newest: Option<DateTime<Utc>> = self.conn
-            .query_row("SELECT MAX(timestamp) FROM messages", [], |row| row.get::<_, Option<String>>(0))
+        let newest: Option<DateTime<Utc>> = self
+            .conn
+            .query_row("SELECT MAX(timestamp) FROM messages", [], |row| {
+                row.get::<_, Option<String>>(0)
+            })
             .ok()
             .flatten()
             .and_then(|s| s.parse().ok());
 
-        Ok(RecordStats { total, by_type, oldest, newest })
+        Ok(RecordStats {
+            total,
+            by_type,
+            oldest,
+            newest,
+        })
     }
 
     /// Exports all records to a JSONL file.
@@ -727,8 +751,32 @@ mod tests {
     fn test_append_and_get_messages() {
         let (store, _dir) = test_store();
         store.create_session("s1", "gpt-4o").unwrap();
-        store.append_message("s1", "user", Some("hello"), None, None, None, None, None, RecordType::Message).unwrap();
-        store.append_message("s1", "assistant", Some("hi there"), None, None, None, None, Some("stop"), RecordType::Message).unwrap();
+        store
+            .append_message(
+                "s1",
+                "user",
+                Some("hello"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                RecordType::Message,
+            )
+            .unwrap();
+        store
+            .append_message(
+                "s1",
+                "assistant",
+                Some("hi there"),
+                None,
+                None,
+                None,
+                None,
+                Some("stop"),
+                RecordType::Message,
+            )
+            .unwrap();
         let msgs = store.get_messages("s1").unwrap();
         assert_eq!(msgs.len(), 2);
         assert_eq!(msgs[0].role, "user");
@@ -739,8 +787,32 @@ mod tests {
     fn test_fts5_search() {
         let (store, _dir) = test_store();
         store.create_session("s1", "gpt-4o").unwrap();
-        store.append_message("s1", "user", Some("deploy to kubernetes"), None, None, None, None, None, RecordType::Message).unwrap();
-        store.append_message("s1", "assistant", Some("I will help with k8s deployment"), None, None, None, None, None, RecordType::Message).unwrap();
+        store
+            .append_message(
+                "s1",
+                "user",
+                Some("deploy to kubernetes"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                RecordType::Message,
+            )
+            .unwrap();
+        store
+            .append_message(
+                "s1",
+                "assistant",
+                Some("I will help with k8s deployment"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                RecordType::Message,
+            )
+            .unwrap();
         let results = store.search("kubernetes", 10).unwrap();
         assert!(!results.is_empty());
         assert!(results[0].snippet.contains("kubernetes"));
@@ -793,7 +865,19 @@ mod tests {
     fn test_export_session() {
         let (store, _dir) = test_store();
         store.create_session("s1", "gpt-4o").unwrap();
-        store.append_message("s1", "user", Some("hello"), None, None, None, None, None, RecordType::Message).unwrap();
+        store
+            .append_message(
+                "s1",
+                "user",
+                Some("hello"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                RecordType::Message,
+            )
+            .unwrap();
         let json = store.export_session("s1").unwrap();
         assert_eq!(json["id"], "s1");
         assert_eq!(json["messages"].as_array().unwrap().len(), 1);
@@ -803,7 +887,19 @@ mod tests {
     fn test_record_type_in_messages() {
         let (store, _dir) = test_store();
         store.create_session("s1", "gpt-4o").unwrap();
-        store.append_message("s1", "tool", Some("result"), None, None, None, None, None, RecordType::ToolResult).unwrap();
+        store
+            .append_message(
+                "s1",
+                "tool",
+                Some("result"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                RecordType::ToolResult,
+            )
+            .unwrap();
         let msgs = store.get_messages("s1").unwrap();
         assert_eq!(msgs[0].record_type, "tool_result");
     }
@@ -832,22 +928,49 @@ mod tests {
     #[test]
     fn test_search() {
         let (store, _dir) = test_record_store();
-        store.insert("s1", "user", Some("deploy to kubernetes"), RecordType::Input).unwrap();
-        store.insert("s1", "assistant", Some("hello world"), RecordType::Output).unwrap();
-        store.insert("s1", "user", Some("Kubernetes cluster setup"), RecordType::Input).unwrap();
+        store
+            .insert(
+                "s1",
+                "user",
+                Some("deploy to kubernetes"),
+                RecordType::Input,
+            )
+            .unwrap();
+        store
+            .insert("s1", "assistant", Some("hello world"), RecordType::Output)
+            .unwrap();
+        store
+            .insert(
+                "s1",
+                "user",
+                Some("Kubernetes cluster setup"),
+                RecordType::Input,
+            )
+            .unwrap();
 
         let results = store.search("kubernetes", 10).unwrap();
         assert_eq!(results.len(), 2);
         // case insensitive
-        assert!(results.iter().all(|r| r.content.as_deref().unwrap().to_lowercase().contains("kubernetes")));
+        assert!(results.iter().all(|r| r
+            .content
+            .as_deref()
+            .unwrap()
+            .to_lowercase()
+            .contains("kubernetes")));
     }
 
     #[test]
     fn test_stats() {
         let (store, _dir) = test_record_store();
-        store.insert("s1", "user", Some("hello"), RecordType::Input).unwrap();
-        store.insert("s1", "assistant", Some("hi"), RecordType::Output).unwrap();
-        store.insert("s1", "user", Some("bye"), RecordType::Input).unwrap();
+        store
+            .insert("s1", "user", Some("hello"), RecordType::Input)
+            .unwrap();
+        store
+            .insert("s1", "assistant", Some("hi"), RecordType::Output)
+            .unwrap();
+        store
+            .insert("s1", "user", Some("bye"), RecordType::Input)
+            .unwrap();
 
         let stats = store.stats().unwrap();
         assert_eq!(stats.total, 3);
@@ -899,9 +1022,45 @@ mod tests {
     fn test_get_messages_ordering() {
         let (store, _dir) = test_store();
         store.create_session("s1", "gpt-4o").unwrap();
-        store.append_message("s1", "user", Some("first"), None, None, None, None, None, RecordType::Message).unwrap();
-        store.append_message("s1", "assistant", Some("second"), None, None, None, None, None, RecordType::Message).unwrap();
-        store.append_message("s1", "user", Some("third"), None, None, None, None, None, RecordType::Message).unwrap();
+        store
+            .append_message(
+                "s1",
+                "user",
+                Some("first"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                RecordType::Message,
+            )
+            .unwrap();
+        store
+            .append_message(
+                "s1",
+                "assistant",
+                Some("second"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                RecordType::Message,
+            )
+            .unwrap();
+        store
+            .append_message(
+                "s1",
+                "user",
+                Some("third"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                RecordType::Message,
+            )
+            .unwrap();
         let msgs = store.get_messages("s1").unwrap();
         assert_eq!(msgs.len(), 3);
         assert_eq!(msgs[0].content.as_deref(), Some("first"));
@@ -913,17 +1072,32 @@ mod tests {
     fn test_append_with_tool_fields() {
         let (store, _dir) = test_store();
         store.create_session("s1", "gpt-4o").unwrap();
-        store.append_message(
-            "s1", "assistant", None,
-            None, Some(r#"[{"id":"call_1","function":{"name":"terminal","arguments":"ls"}}]"#),
-            None, Some("thinking..."), Some("tool_calls"),
-            RecordType::ToolCall,
-        ).unwrap();
-        store.append_message(
-            "s1", "tool", Some("file1.txt\nfile2.txt"),
-            Some("call_1"), None, Some("terminal"), None, None,
-            RecordType::ToolResult,
-        ).unwrap();
+        store
+            .append_message(
+                "s1",
+                "assistant",
+                None,
+                None,
+                Some(r#"[{"id":"call_1","function":{"name":"terminal","arguments":"ls"}}]"#),
+                None,
+                Some("thinking..."),
+                Some("tool_calls"),
+                RecordType::ToolCall,
+            )
+            .unwrap();
+        store
+            .append_message(
+                "s1",
+                "tool",
+                Some("file1.txt\nfile2.txt"),
+                Some("call_1"),
+                None,
+                Some("terminal"),
+                None,
+                None,
+                RecordType::ToolResult,
+            )
+            .unwrap();
         let msgs = store.get_messages("s1").unwrap();
         assert_eq!(msgs.len(), 2);
         assert_eq!(msgs[0].role, "assistant");
@@ -938,7 +1112,14 @@ mod tests {
     fn test_record_store_insert_and_search_limit() {
         let (store, _dir) = test_record_store();
         for i in 0..5 {
-            store.insert("s1", "user", Some(&format!("message {i}")), RecordType::Input).unwrap();
+            store
+                .insert(
+                    "s1",
+                    "user",
+                    Some(&format!("message {i}")),
+                    RecordType::Input,
+                )
+                .unwrap();
         }
         let all = store.search("message", 100).unwrap();
         assert_eq!(all.len(), 5);
@@ -955,8 +1136,12 @@ mod tests {
             "INSERT INTO sessions (id, model, started_at) VALUES ('s1', 'test', '2026-01-01T00:00:00Z')",
             [],
         ).unwrap();
-        store.insert("s1", "user", Some("hello"), RecordType::Input).unwrap();
-        store.insert("s1", "assistant", Some("hi"), RecordType::Output).unwrap();
+        store
+            .insert("s1", "user", Some("hello"), RecordType::Input)
+            .unwrap();
+        store
+            .insert("s1", "assistant", Some("hi"), RecordType::Output)
+            .unwrap();
 
         let out_path = dir.path().join("export.jsonl");
         let count = store.export_jsonl(&out_path).unwrap();
@@ -975,8 +1160,32 @@ mod tests {
         let (store, _dir) = test_store();
         store.create_session("s1", "gpt-4o").unwrap();
         store.create_session("s2", "claude").unwrap();
-        store.append_message("s1", "user", Some("msg from s1"), None, None, None, None, None, RecordType::Message).unwrap();
-        store.append_message("s2", "user", Some("msg from s2"), None, None, None, None, None, RecordType::Message).unwrap();
+        store
+            .append_message(
+                "s1",
+                "user",
+                Some("msg from s1"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                RecordType::Message,
+            )
+            .unwrap();
+        store
+            .append_message(
+                "s2",
+                "user",
+                Some("msg from s2"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                RecordType::Message,
+            )
+            .unwrap();
         let msgs1 = store.get_messages("s1").unwrap();
         let msgs2 = store.get_messages("s2").unwrap();
         assert_eq!(msgs1.len(), 1);
@@ -989,7 +1198,19 @@ mod tests {
     fn test_search_no_results() {
         let (store, _dir) = test_store();
         store.create_session("s1", "gpt-4o").unwrap();
-        store.append_message("s1", "user", Some("hello world"), None, None, None, None, None, RecordType::Message).unwrap();
+        store
+            .append_message(
+                "s1",
+                "user",
+                Some("hello world"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                RecordType::Message,
+            )
+            .unwrap();
         let results = store.search("kubernetes", 10).unwrap();
         assert!(results.is_empty());
     }

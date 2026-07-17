@@ -57,7 +57,11 @@ pub enum Commands {
     },
     /// Run the HTTP API server (axum, CORS, SSE streaming, Bearer auth).
     Serve {
-        #[arg(long, default_value = "0.0.0.0", help = "Bind host (use 0.0.0.0 only behind a trusted network)")]
+        #[arg(
+            long,
+            default_value = "0.0.0.0",
+            help = "Bind host (use 0.0.0.0 only behind a trusted network)"
+        )]
         host: String,
         #[arg(short, long, default_value = "3000")]
         port: u16,
@@ -117,15 +121,24 @@ pub enum Commands {
     },
     /// Back up aegis state (memory/strategies/goals/sessions/config) to a tar.gz.
     Backup {
-        #[arg(long, help = "Output path (default: <config>/backups/aegis-backup-<ts>.tgz)")]
+        #[arg(
+            long,
+            help = "Output path (default: <config>/backups/aegis-backup-<ts>.tgz)"
+        )]
         out: Option<String>,
-        #[arg(long = "include-secrets", help = "Include secrets.json (PLAINTEXT keys)")]
+        #[arg(
+            long = "include-secrets",
+            help = "Include secrets.json (PLAINTEXT keys)"
+        )]
         include_secrets: bool,
     },
     /// Restore aegis state from a backup tar.gz (destructive; needs --force).
     Restore {
         path: String,
-        #[arg(long, help = "Actually overwrite current state (saves a pre-restore backup first)")]
+        #[arg(
+            long,
+            help = "Actually overwrite current state (saves a pre-restore backup first)"
+        )]
         force: bool,
     },
     /// List everything Aegis writes to disk (its own artifacts / products).
@@ -144,7 +157,10 @@ pub enum Commands {
     /// is irreversible (no backup). On Unix it also best-effort removes the
     /// running binary. Use `--yes` for non-interactive scripted uninstall.
     Uninstall {
-        #[arg(long, help = "Non-interactive: skip all prompts (keeps nothing unless --keep-* given)")]
+        #[arg(
+            long,
+            help = "Non-interactive: skip all prompts (keeps nothing unless --keep-* given)"
+        )]
         yes: bool,
         #[arg(long, help = "Keep memory (memory/mempalace) [non-interactive]")]
         keep_memory: bool,
@@ -201,13 +217,20 @@ pub enum Commands {
     },
     /// Run as an A2A peer server so other aegis instances can delegate tasks here
     A2a {
-        #[arg(long, default_value = "127.0.0.1", help = "Bind host (use 0.0.0.0 only behind a trusted network)")]
+        #[arg(
+            long,
+            default_value = "127.0.0.1",
+            help = "Bind host (use 0.0.0.0 only behind a trusted network)"
+        )]
         host: String,
         #[arg(short, long, default_value = "41241")]
         port: u16,
         #[arg(short, long)]
         model: Option<String>,
-        #[arg(long, help = "Require this bearer token on incoming A2A requests (or set AEGIS_A2A_TOKEN)")]
+        #[arg(
+            long,
+            help = "Require this bearer token on incoming A2A requests (or set AEGIS_A2A_TOKEN)"
+        )]
         token: Option<String>,
         #[arg(long, help = "Auto-approve all tool calls")]
         yolo: bool,
@@ -221,7 +244,10 @@ pub enum Commands {
         model: Option<String>,
         #[arg(long, help = "Auto-approve all tool calls")]
         yolo: bool,
-        #[arg(long, help = "Reckless: pass ALL commands incl. dangerous ones, no confirmation")]
+        #[arg(
+            long,
+            help = "Reckless: pass ALL commands incl. dangerous ones, no confirmation"
+        )]
         reckless: bool,
     },
     /// Manage the deletion trash (recoverable `rm`)
@@ -253,7 +279,10 @@ pub enum Commands {
 pub enum GatewayAction {
     /// Install a systemd unit so the gateway starts on boot (and on crash)
     Install {
-        #[arg(long, help = "System-wide unit (/etc/systemd/system, needs root) instead of per-user")]
+        #[arg(
+            long,
+            help = "System-wide unit (/etc/systemd/system, needs root) instead of per-user"
+        )]
         system: bool,
         #[arg(long, help = "Bake AEGIS_A2A_TOKEN into the unit")]
         token: Option<String>,

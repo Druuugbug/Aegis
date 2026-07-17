@@ -314,9 +314,14 @@ impl SelfModTool {
             // Read mode: return current config
             let content = std::fs::read_to_string(&config_path).unwrap_or_default();
             if content.is_empty() {
-                return Ok("No config.toml found. Use with target='section.key' and value='...' to set.".into());
+                return Ok(
+                    "No config.toml found. Use with target='section.key' and value='...' to set."
+                        .into(),
+                );
             }
-            return Ok(format!("Current config (~/.aegis/config.toml):\n```toml\n{content}\n```"));
+            return Ok(format!(
+                "Current config (~/.aegis/config.toml):\n```toml\n{content}\n```"
+            ));
         }
 
         if value.is_empty() {
@@ -395,7 +400,8 @@ impl SelfModTool {
         let value = args["value"].as_str().unwrap_or("read");
 
         if value == "read" {
-            let content = std::fs::read_to_string(&soul_path).unwrap_or_else(|_| "(no SOUL.md found)".into());
+            let content =
+                std::fs::read_to_string(&soul_path).unwrap_or_else(|_| "(no SOUL.md found)".into());
             return Ok(format!("Current SOUL.md:\n\n{content}"));
         }
 
@@ -410,7 +416,8 @@ impl SelfModTool {
         let value = args["value"].as_str().unwrap_or("read");
 
         if value == "read" {
-            let content = std::fs::read_to_string(&filter_path).unwrap_or_else(|_| "(no filters.toml found)".into());
+            let content = std::fs::read_to_string(&filter_path)
+                .unwrap_or_else(|_| "(no filters.toml found)".into());
             return Ok(format!("Current filters.toml:\n```toml\n{content}\n```"));
         }
 
@@ -445,7 +452,14 @@ impl SelfModTool {
                 return Ok("No script tools defined. Create one with target='name' and value='<toml content>'.".into());
             }
             tools.sort();
-            return Ok(format!("Script tools in ~/.aegis/tools.d/:\n{}", tools.iter().map(|t| format!("- {t}")).collect::<Vec<_>>().join("\n")));
+            return Ok(format!(
+                "Script tools in ~/.aegis/tools.d/:\n{}",
+                tools
+                    .iter()
+                    .map(|t| format!("- {t}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ));
         }
 
         if name.is_empty() {
@@ -475,7 +489,9 @@ impl SelfModTool {
             backup_config_file(&path)?;
         }
         std::fs::write(&path, value)?;
-        Ok(format!("Script tool '{name}' saved to ~/.aegis/tools.d/{name}.toml. Available next turn."))
+        Ok(format!(
+            "Script tool '{name}' saved to ~/.aegis/tools.d/{name}.toml. Available next turn."
+        ))
     }
 
     // ─── Layer 2 Actions ───
@@ -497,7 +513,11 @@ impl SelfModTool {
                 "Source root: {}\nCrates ({}):\n{}",
                 root.display(),
                 crates.len(),
-                crates.iter().map(|c| format!("  {c}")).collect::<Vec<_>>().join("\n")
+                crates
+                    .iter()
+                    .map(|c| format!("  {c}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
             ));
         }
 
@@ -510,7 +530,11 @@ impl SelfModTool {
                     "source_root: {}\ncrate_path: {}/{target}/src/\nfiles:\n{}",
                     root.display(),
                     dir,
-                    files.iter().map(|f| format!("  {f}")).collect::<Vec<_>>().join("\n")
+                    files
+                        .iter()
+                        .map(|f| format!("  {f}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
                 ));
             }
         }
@@ -518,9 +542,19 @@ impl SelfModTool {
         let crates = list_crates(&root);
         let matches: Vec<&String> = crates.iter().filter(|c| c.contains(target)).collect();
         if matches.is_empty() {
-            Ok(format!("Crate '{target}' not found. Available: {}", crates.join(", ")))
+            Ok(format!(
+                "Crate '{target}' not found. Available: {}",
+                crates.join(", ")
+            ))
         } else {
-            Ok(format!("Partial matches for '{target}': {}", matches.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")))
+            Ok(format!(
+                "Partial matches for '{target}': {}",
+                matches
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
         }
     }
 
@@ -664,7 +698,10 @@ impl SelfModTool {
             .unwrap_or(0);
 
         let checkpoints = CheckpointManager::list().unwrap_or_default();
-        let recent_cp = checkpoints.first().map(|(name, _)| name.as_str()).unwrap_or("none");
+        let recent_cp = checkpoints
+            .first()
+            .map(|(name, _)| name.as_str())
+            .unwrap_or("none");
 
         Ok(format!(
             "Source root: {}\nGit HEAD: {hash}\nDirty files: {}\nSOUL.md: {}\nScript tools: {}\nLast checkpoint: {recent_cp}{}",
@@ -679,7 +716,9 @@ impl SelfModTool {
     async fn action_rollback(&self) -> Result<String> {
         let root = match find_source_root() {
             Some(r) => r,
-            None => return Ok("Source not available. For config rollback, use checkpoints.".into()),
+            None => {
+                return Ok("Source not available. For config rollback, use checkpoints.".into())
+            }
         };
 
         if !has_git(&root) {
@@ -702,7 +741,10 @@ impl SelfModTool {
             .current_dir(&root)
             .status();
 
-        Ok(format!("Rolled back {} dirty file(s). Working directory is clean.", dirty.len()))
+        Ok(format!(
+            "Rolled back {} dirty file(s). Working directory is clean.",
+            dirty.len()
+        ))
     }
 }
 
@@ -715,7 +757,11 @@ fn walkdir_simple(dir: &Path) -> Vec<String> {
             if path.is_dir() {
                 files.extend(walkdir_simple(&path));
             } else {
-                let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                let name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
                 files.push(name);
             }
         }
@@ -745,7 +791,10 @@ mod tests {
 
     #[test]
     fn test_coerce_config_value_new_key_infers_shape() {
-        assert_eq!(coerce_config_value(None, "true"), toml::Value::Boolean(true));
+        assert_eq!(
+            coerce_config_value(None, "true"),
+            toml::Value::Boolean(true)
+        );
         assert_eq!(coerce_config_value(None, "42"), toml::Value::Integer(42));
         assert_eq!(
             coerce_config_value(None, "idle"),
@@ -756,7 +805,10 @@ mod tests {
     #[test]
     fn test_coerce_config_value_preserves_existing_bool_and_int() {
         let b = toml::Value::Boolean(false);
-        assert_eq!(coerce_config_value(Some(&b), "true"), toml::Value::Boolean(true));
+        assert_eq!(
+            coerce_config_value(Some(&b), "true"),
+            toml::Value::Boolean(true)
+        );
         let i = toml::Value::Integer(1);
         assert_eq!(coerce_config_value(Some(&i), "7"), toml::Value::Integer(7));
     }

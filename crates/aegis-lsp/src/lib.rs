@@ -131,14 +131,32 @@ pub fn parse_publish_diagnostics(params: &Value) -> Option<(String, Vec<Diagnost
                 .map(Severity::from_lsp)
                 .unwrap_or(Severity::Error);
             let start = d.get("range").and_then(|r| r.get("start"));
-            let line = start.and_then(|s| s.get("line")).and_then(|l| l.as_u64()).unwrap_or(0) + 1;
-            let col = start.and_then(|s| s.get("character")).and_then(|c| c.as_u64()).unwrap_or(0) + 1;
-            let message = d.get("message").and_then(|m| m.as_str()).unwrap_or("").to_string();
+            let line = start
+                .and_then(|s| s.get("line"))
+                .and_then(|l| l.as_u64())
+                .unwrap_or(0)
+                + 1;
+            let col = start
+                .and_then(|s| s.get("character"))
+                .and_then(|c| c.as_u64())
+                .unwrap_or(0)
+                + 1;
+            let message = d
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("")
+                .to_string();
             let code = d.get("code").map(|c| match c {
                 Value::String(s) => s.clone(),
                 other => other.to_string(),
             });
-            out.push(Diagnostic { severity: sev, line, col, message, code });
+            out.push(Diagnostic {
+                severity: sev,
+                line,
+                col,
+                message,
+                code,
+            });
         }
     }
     Some((uri, out))
@@ -155,13 +173,20 @@ pub fn format_diagnostics(lang: &str, path: &Path, diags: &[Diagnostic], max: us
         return String::new();
     }
     kept.sort_by_key(|d| (d.severity.rank(), d.line, d.col));
-    let errs = kept.iter().filter(|d| d.severity == Severity::Error).count();
+    let errs = kept
+        .iter()
+        .filter(|d| d.severity == Severity::Error)
+        .count();
     let warns = kept.len() - errs;
     let total = kept.len();
     let file = path.display();
     let mut s = format!("\n── LSP diagnostics ({lang}, {errs} error(s), {warns} warning(s)) ──\n");
     for d in kept.iter().take(max) {
-        let code = d.code.as_deref().map(|c| format!(" [{c}]")).unwrap_or_default();
+        let code = d
+            .code
+            .as_deref()
+            .map(|c| format!(" [{c}]"))
+            .unwrap_or_default();
         s.push_str(&format!(
             "{}{} {}:{}:{} {}\n",
             d.severity.label(),
@@ -173,7 +198,10 @@ pub fn format_diagnostics(lang: &str, path: &Path, diags: &[Diagnostic], max: us
         ));
     }
     if total > max {
-        s.push_str(&format!("… ({} more; fix the above and retry)\n", total - max));
+        s.push_str(&format!(
+            "… ({} more; fix the above and retry)\n",
+            total - max
+        ));
     }
     s
 }
@@ -290,14 +318,21 @@ pub fn format_symbols(result: &Value) -> String {
     }
     fn walk(v: &Value, depth: usize, out: &mut Vec<String>) {
         let name = v.get("name").and_then(|n| n.as_str()).unwrap_or("?");
-        let kind = v.get("kind").and_then(|k| k.as_i64()).map(kind_name).unwrap_or("symbol");
+        let kind = v
+            .get("kind")
+            .and_then(|k| k.as_i64())
+            .map(kind_name)
+            .unwrap_or("symbol");
         // DocumentSymbol.range.start OR SymbolInformation.location.range.start
         let start = v
             .get("range")
             .or_else(|| v.get("selectionRange"))
             .or_else(|| v.get("location").and_then(|l| l.get("range")))
             .and_then(|r| r.get("start"));
-        let line = start.and_then(|s| s.get("line")).and_then(|l| l.as_u64()).map(|l| l + 1);
+        let line = start
+            .and_then(|s| s.get("line"))
+            .and_then(|l| l.as_u64())
+            .map(|l| l + 1);
         let loc = line.map(|l| format!(":{l}")).unwrap_or_default();
         out.push(format!("{}{} {}{}", "  ".repeat(depth), kind, name, loc));
         if let Some(children) = v.get("children").and_then(|c| c.as_array()) {
@@ -347,8 +382,14 @@ impl LspClient {
             .stderr(std::process::Stdio::null())
             .kill_on_drop(true)
             .spawn()?;
-        let stdin = child.stdin.take().ok_or_else(|| anyhow::anyhow!("no stdin"))?;
-        let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("no stdout"))?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("no stdin"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("no stdout"))?;
 
         let diagnostics: Arc<Mutex<HashMap<String, Vec<Diagnostic>>>> =
             Arc::new(Mutex::new(HashMap::new()));
@@ -380,10 +421,9 @@ impl LspClient {
                             } else if let Some(id) = msg.get("id").and_then(|i| i.as_i64()) {
                                 // A response to one of our requests.
                                 if msg.get("result").is_some() || msg.get("error").is_some() {
-                                    let val = msg
-                                        .get("result")
-                                        .cloned()
-                                        .unwrap_or_else(|| msg.get("error").cloned().unwrap_or(Value::Null));
+                                    let val = msg.get("result").cloned().unwrap_or_else(|| {
+                                        msg.get("error").cloned().unwrap_or(Value::Null)
+                                    });
                                     responses.lock().await.insert(id, val);
                                     notify.notify_waiters();
                                 }
@@ -568,7 +608,8 @@ impl LspClient {
             "textDocument": { "uri": path_to_uri(path) },
             "position": { "line": line0, "character": col0 }
         });
-        self.request("textDocument/definition", params, timeout).await
+        self.request("textDocument/definition", params, timeout)
+            .await
     }
 
     /// `textDocument/references` at a 0-based (line, character).
@@ -586,7 +627,8 @@ impl LspClient {
             "position": { "line": line0, "character": col0 },
             "context": { "includeDeclaration": true }
         });
-        self.request("textDocument/references", params, timeout).await
+        self.request("textDocument/references", params, timeout)
+            .await
     }
 
     /// `textDocument/hover` at a 0-based (line, character).
@@ -615,7 +657,8 @@ impl LspClient {
     ) -> anyhow::Result<Value> {
         self.ensure_open(path, language_id).await?;
         let params = json!({ "textDocument": { "uri": path_to_uri(path) } });
-        self.request("textDocument/documentSymbol", params, timeout).await
+        self.request("textDocument/documentSymbol", params, timeout)
+            .await
     }
 }
 
@@ -645,7 +688,8 @@ async fn read_message<R: AsyncReadExt + Unpin>(reader: &mut R) -> anyhow::Result
         }
     }
     let header_str = String::from_utf8_lossy(&header);
-    let len = parse_content_length(&header_str).ok_or_else(|| anyhow::anyhow!("no content-length"))?;
+    let len =
+        parse_content_length(&header_str).ok_or_else(|| anyhow::anyhow!("no content-length"))?;
     let mut body = vec![0u8; len];
     reader.read_exact(&mut body).await?;
     let val: Value = serde_json::from_slice(&body)?;
@@ -750,8 +794,16 @@ impl LspManager {
         let timeout = Duration::from_millis(self.settings.timeout_ms.max(1000));
 
         let result = match action {
-            "definition" => client.goto_definition(path, &lang, line0, col0, timeout).await,
-            "references" => client.find_references(path, &lang, line0, col0, timeout).await,
+            "definition" => {
+                client
+                    .goto_definition(path, &lang, line0, col0, timeout)
+                    .await
+            }
+            "references" => {
+                client
+                    .find_references(path, &lang, line0, col0, timeout)
+                    .await
+            }
             "hover" => client.hover(path, &lang, line0, col0, timeout).await,
             "symbols" => client.document_symbols(path, &lang, timeout).await,
             other => return format!("Unknown navigation action: '{other}'"),
@@ -779,7 +831,10 @@ mod tests {
         let text = String::from_utf8(framed).unwrap();
         assert!(text.starts_with("Content-Length: 7\r\n\r\n"));
         assert_eq!(parse_content_length("Content-Length: 42\r\n"), Some(42));
-        assert_eq!(parse_content_length("content-length: 7\r\nX: y\r\n"), Some(7));
+        assert_eq!(
+            parse_content_length("content-length: 7\r\nX: y\r\n"),
+            Some(7)
+        );
         assert_eq!(parse_content_length("X: y\r\n"), None);
     }
 
@@ -819,9 +874,27 @@ mod tests {
     #[test]
     fn test_format_diagnostics_orders_errors_first_and_truncates() {
         let diags = vec![
-            Diagnostic { severity: Severity::Warning, line: 20, col: 5, message: "unused".into(), code: None },
-            Diagnostic { severity: Severity::Error, line: 12, col: 9, message: "type error".into(), code: Some("E0308".into()) },
-            Diagnostic { severity: Severity::Hint, line: 1, col: 1, message: "hint".into(), code: None },
+            Diagnostic {
+                severity: Severity::Warning,
+                line: 20,
+                col: 5,
+                message: "unused".into(),
+                code: None,
+            },
+            Diagnostic {
+                severity: Severity::Error,
+                line: 12,
+                col: 9,
+                message: "type error".into(),
+                code: Some("E0308".into()),
+            },
+            Diagnostic {
+                severity: Severity::Hint,
+                line: 1,
+                col: 1,
+                message: "hint".into(),
+                code: None,
+            },
         ];
         let out = format_diagnostics("rust", Path::new("src/foo.rs"), &diags, 10);
         assert!(out.contains("1 error(s), 1 warning(s)"));
@@ -837,7 +910,13 @@ mod tests {
 
     #[test]
     fn test_format_empty_when_no_errors_or_warnings() {
-        let diags = vec![Diagnostic { severity: Severity::Hint, line: 1, col: 1, message: "h".into(), code: None }];
+        let diags = vec![Diagnostic {
+            severity: Severity::Hint,
+            line: 1,
+            col: 1,
+            message: "h".into(),
+            code: None,
+        }];
         assert!(format_diagnostics("rust", Path::new("x.rs"), &diags, 5).is_empty());
     }
 
@@ -846,9 +925,17 @@ mod tests {
         let mut servers = HashMap::new();
         servers.insert(
             "rust".to_string(),
-            ServerSpec { command: "rust-analyzer".into(), args: vec![], extensions: vec!["rs".into()] },
+            ServerSpec {
+                command: "rust-analyzer".into(),
+                args: vec![],
+                extensions: vec!["rs".into()],
+            },
         );
-        let mgr = LspManager::new(LspSettings { servers, timeout_ms: 1000, max_diagnostics: 20 });
+        let mgr = LspManager::new(LspSettings {
+            servers,
+            timeout_ms: 1000,
+            max_diagnostics: 20,
+        });
         assert!(mgr.handles(Path::new("src/main.rs")));
         assert!(!mgr.handles(Path::new("README.md")));
     }

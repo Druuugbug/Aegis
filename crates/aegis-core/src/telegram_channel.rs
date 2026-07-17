@@ -72,10 +72,7 @@ impl Channel for TelegramChannel {
         if resp.status().is_success() {
             Ok(())
         } else {
-            Err(anyhow!(
-                "Telegram getMe failed: {}",
-                resp.status()
-            ))
+            Err(anyhow!("Telegram getMe failed: {}", resp.status()))
         }
     }
 
@@ -136,10 +133,7 @@ impl Channel for TelegramChannel {
             });
             let resp = self.client.post(&url).json(&body).send().await?;
             if !resp.status().is_success() {
-                return Err(anyhow!(
-                    "Telegram sendMessage failed: {}",
-                    resp.status()
-                ));
+                return Err(anyhow!("Telegram sendMessage failed: {}", resp.status()));
             }
         }
         Ok(())

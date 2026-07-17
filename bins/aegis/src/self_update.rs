@@ -21,7 +21,11 @@ pub enum UpdateOutcome {
     UpToDate { current: String },
     /// Binary replaced; the new version takes effect next launch (or via
     /// hot-swap). `exe` is the replaced executable path.
-    Updated { from: String, to: String, exe: PathBuf },
+    Updated {
+        from: String,
+        to: String,
+        exe: PathBuf,
+    },
     /// No prebuilt asset for this OS/arch — user must use cargo.
     NeedsCargo { hint: String },
 }
@@ -59,7 +63,8 @@ pub(crate) fn resolve_repo(cfg: &Config, override_repo: Option<&str>) -> Option<
 /// `https://github.com/Druuugbug/Aegis` (trailing `.git` / `/` tolerated).
 pub(crate) fn repo_from_url(url: &str) -> Option<String> {
     let s = url.trim().trim_end_matches('/');
-    let rest = s.strip_prefix("https://github.com/")
+    let rest = s
+        .strip_prefix("https://github.com/")
         .or_else(|| s.strip_prefix("http://github.com/"))
         .or_else(|| s.strip_prefix("git@github.com:"))?;
     let rest = rest.strip_suffix(".git").unwrap_or(rest);
@@ -71,6 +76,11 @@ pub(crate) fn repo_from_url(url: &str) -> Option<String> {
 
 /// Prebuilt asset name for the current OS/arch, or `None` when no prebuilt is
 /// published for this target (caller then points the user at cargo).
+///
+/// Authoritative source is the SHIPPING release workflow in the public repo
+/// (Druuugbug/Aegis): v1.0.4+ ships Linux only (musl static) as
+/// `aegis-linux-<arch>.tar.gz`. Do NOT re-derive this from the dev-repo
+/// `.github/workflows/release.yml` — that file is a never-shipped draft.
 pub(crate) fn target_asset() -> Option<String> {
     if !cfg!(target_os = "linux") {
         return None;
@@ -106,7 +116,11 @@ pub async fn perform_update(opts: &UpdateOptions) -> Result<UpdateOutcome> {
 
     let asset = match target_asset() {
         Some(a) => a,
-        None => return Ok(UpdateOutcome::NeedsCargo { hint: CARGO_HINT.to_string() }),
+        None => {
+            return Ok(UpdateOutcome::NeedsCargo {
+                hint: CARGO_HINT.to_string(),
+            })
+        }
     };
 
     let url = format!("https://github.com/{repo}/releases/download/{latest}/{asset}");
@@ -119,7 +133,11 @@ pub async fn perform_update(opts: &UpdateOptions) -> Result<UpdateOutcome> {
     let exe = std::env::current_exe().context("locating current executable")?;
     replace_executable(&staged, &exe)?;
 
-    Ok(UpdateOutcome::Updated { from: current, to: latest, exe })
+    Ok(UpdateOutcome::Updated {
+        from: current,
+        to: latest,
+        exe,
+    })
 }
 
 /// Sanity-check a freshly downloaded binary before trusting it: it must run and
@@ -157,7 +175,10 @@ async fn download_and_extract(url: &str, asset: &str) -> Result<PathBuf> {
     let bytes = resp.bytes().await?;
     // Guard against absurd sizes on tiny hosts (256 MiB cap).
     if bytes.len() as u64 > 256 * 1024 * 1024 {
-        return Err(anyhow!("release asset unexpectedly large ({} bytes)", bytes.len()));
+        return Err(anyhow!(
+            "release asset unexpectedly large ({} bytes)",
+            bytes.len()
+        ));
     }
     std::fs::write(&tarball, &bytes).with_context(|| format!("writing {}", tarball.display()))?;
 
@@ -204,7 +225,9 @@ fn find_binary(dir: &Path, name: &str) -> Option<PathBuf> {
 /// filesystem → atomic `rename`), sets 0755, then renames over the target.
 /// Replacing a running executable is legal on Linux (the old inode stays open).
 fn replace_executable(new_bin: &Path, exe: &Path) -> Result<()> {
-    let dir = exe.parent().ok_or_else(|| anyhow!("executable has no parent dir"))?;
+    let dir = exe
+        .parent()
+        .ok_or_else(|| anyhow!("executable has no parent dir"))?;
     // Back up the current binary first so a bad update can be rolled back with
     // `aegis update --rollback` (best-effort; failure here is non-fatal).
     let _ = std::fs::copy(exe, dir.join(".aegis-prev"));
@@ -219,7 +242,10 @@ fn replace_executable(new_bin: &Path, exe: &Path) -> Result<()> {
             .context("chmod 0755 on staged binary")?;
     }
     std::fs::rename(&tmp, exe).with_context(|| {
-        format!("replacing {} (is it writable? may need sudo)", exe.display())
+        format!(
+            "replacing {} (is it writable? may need sudo)",
+            exe.display()
+        )
     })?;
     Ok(())
 }
@@ -228,7 +254,9 @@ fn replace_executable(new_bin: &Path, exe: &Path) -> Result<()> {
 /// beside the executable). Returns the restored executable path.
 pub fn restore_previous() -> Result<PathBuf> {
     let exe = std::env::current_exe().context("locating current executable")?;
-    let dir = exe.parent().ok_or_else(|| anyhow!("executable has no parent dir"))?;
+    let dir = exe
+        .parent()
+        .ok_or_else(|| anyhow!("executable has no parent dir"))?;
     let backup = dir.join(".aegis-prev");
     if !backup.is_file() {
         return Err(anyhow!(
@@ -332,10 +360,22 @@ mod tests {
 
     #[test]
     fn test_repo_from_url_variants() {
-        assert_eq!(repo_from_url("https://github.com/Druuugbug/Aegis").as_deref(), Some("Druuugbug/Aegis"));
-        assert_eq!(repo_from_url("https://github.com/Druuugbug/Aegis/").as_deref(), Some("Druuugbug/Aegis"));
-        assert_eq!(repo_from_url("https://github.com/foo/bar.git").as_deref(), Some("foo/bar"));
-        assert_eq!(repo_from_url("git@github.com:foo/bar.git").as_deref(), Some("foo/bar"));
+        assert_eq!(
+            repo_from_url("https://github.com/Druuugbug/Aegis").as_deref(),
+            Some("Druuugbug/Aegis")
+        );
+        assert_eq!(
+            repo_from_url("https://github.com/Druuugbug/Aegis/").as_deref(),
+            Some("Druuugbug/Aegis")
+        );
+        assert_eq!(
+            repo_from_url("https://github.com/foo/bar.git").as_deref(),
+            Some("foo/bar")
+        );
+        assert_eq!(
+            repo_from_url("git@github.com:foo/bar.git").as_deref(),
+            Some("foo/bar")
+        );
         assert_eq!(repo_from_url("https://example.com/foo/bar"), None);
         assert_eq!(repo_from_url(""), None);
     }
@@ -354,7 +394,10 @@ mod tests {
         // explicit override beats config.
         assert_eq!(resolve_repo(&cfg, Some("x/y")).as_deref(), Some("x/y"));
         // blank override is ignored.
-        assert_eq!(resolve_repo(&cfg, Some("  ")).as_deref(), Some("acme/aegis"));
+        assert_eq!(
+            resolve_repo(&cfg, Some("  ")).as_deref(),
+            Some("acme/aegis")
+        );
     }
 
     #[test]

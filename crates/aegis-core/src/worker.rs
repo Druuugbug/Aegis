@@ -407,10 +407,7 @@ impl WorktreeManager {
                     // Simple approach: use pathdiff-style relative calculation.
                     let rel_path = diff_paths(&abs_path, worktree_path);
                     if let Some(rel_path) = rel_path {
-                        std::fs::write(
-                            &git_file,
-                            format!("gitdir: {}\n", rel_path.display()),
-                        )?;
+                        std::fs::write(&git_file, format!("gitdir: {}\n", rel_path.display()))?;
                     }
                     let _ = rel; // suppress warning
                 }
@@ -450,8 +447,7 @@ fn diff_paths(target: &std::path::Path, base: &std::path::Path) -> Option<std::p
 
 use chrono::{DateTime, Utc};
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct TaskProgress {
     pub assigned_worker_id: Option<String>,
     pub started_at: Option<DateTime<Utc>>,
@@ -462,7 +458,6 @@ pub struct TaskProgress {
     pub checkpoint_count: u64,
     pub stale_since: Option<DateTime<Utc>>,
 }
-
 
 impl TaskProgress {
     /// Returns true if no heartbeat received in over 60 seconds.
@@ -647,8 +642,14 @@ mod tests {
 
     #[test]
     fn test_score_worker_high_load_reduces() {
-        let low_load = TaskAffinity { current_load: 0, ..Default::default() };
-        let high_load = TaskAffinity { current_load: 10, ..Default::default() };
+        let low_load = TaskAffinity {
+            current_load: 0,
+            ..Default::default()
+        };
+        let high_load = TaskAffinity {
+            current_load: 10,
+            ..Default::default()
+        };
         assert!(score_worker(&low_load) > score_worker(&high_load));
     }
 
@@ -726,9 +727,18 @@ mod tests {
     #[test]
     fn test_select_worker_affinity() {
         let affinities = vec![
-            TaskAffinity { domain_match: 0.1, ..Default::default() },
-            TaskAffinity { domain_match: 0.9, ..Default::default() },
-            TaskAffinity { domain_match: 0.5, ..Default::default() },
+            TaskAffinity {
+                domain_match: 0.1,
+                ..Default::default()
+            },
+            TaskAffinity {
+                domain_match: 0.9,
+                ..Default::default()
+            },
+            TaskAffinity {
+                domain_match: 0.5,
+                ..Default::default()
+            },
         ];
         let idx = select_worker(&affinities, "affinity");
         assert_eq!(idx, 1); // highest domain_match
@@ -737,8 +747,14 @@ mod tests {
     #[test]
     fn test_select_worker_random() {
         let affinities = vec![
-            TaskAffinity { domain_match: 0.9, ..Default::default() },
-            TaskAffinity { domain_match: 0.1, ..Default::default() },
+            TaskAffinity {
+                domain_match: 0.9,
+                ..Default::default()
+            },
+            TaskAffinity {
+                domain_match: 0.1,
+                ..Default::default()
+            },
         ];
         let idx = select_worker(&affinities, "random");
         assert_eq!(idx, 0); // random defaults to 0
@@ -811,10 +827,7 @@ mod tests {
 
     #[test]
     fn test_diff_paths_parent() {
-        let result = diff_paths(
-            std::path::Path::new("/a"),
-            std::path::Path::new("/a/b/c"),
-        );
+        let result = diff_paths(std::path::Path::new("/a"), std::path::Path::new("/a/b/c"));
         assert_eq!(result.unwrap(), std::path::PathBuf::from("../.."));
     }
 
@@ -910,7 +923,8 @@ mod tests {
         let c = counter.clone();
         map.with_lock("w1", || async {
             c.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        }).await;
+        })
+        .await;
         assert_eq!(counter.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
@@ -922,10 +936,12 @@ mod tests {
         let (c1a, c2a) = (c1.clone(), c2.clone());
         map.with_lock("w1", || async {
             c1a.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        }).await;
+        })
+        .await;
         map.with_lock("w2", || async {
             c2a.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        }).await;
+        })
+        .await;
         assert_eq!(c1.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert_eq!(c2.load(std::sync::atomic::Ordering::SeqCst), 1);
     }

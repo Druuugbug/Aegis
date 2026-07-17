@@ -1,6 +1,6 @@
 //! Core types for the IBLT-based tiered storage engine.
 
-use serde::{Deserialize, Serialize, Deserializer, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -18,13 +18,21 @@ impl Timestamp {
             .unwrap_or_default();
         Self(dur.as_micros() as u64)
     }
-    pub fn from_micros(us: u64) -> Self { Self(us) }
-    pub fn as_micros(&self) -> u64 { self.0 }
-    pub fn elapsed_us(&self) -> u64 { Self::now().0.saturating_sub(self.0) }
+    pub fn from_micros(us: u64) -> Self {
+        Self(us)
+    }
+    pub fn as_micros(&self) -> u64 {
+        self.0
+    }
+    pub fn elapsed_us(&self) -> u64 {
+        Self::now().0.saturating_sub(self.0)
+    }
 }
 
 impl Default for Timestamp {
-    fn default() -> Self { Self::now() }
+    fn default() -> Self {
+        Self::now()
+    }
 }
 
 impl fmt::Display for Timestamp {
@@ -38,10 +46,18 @@ impl fmt::Display for Timestamp {
 pub struct ByteString(pub Vec<u8>);
 
 impl ByteString {
-    pub fn new(data: impl Into<Vec<u8>>) -> Self { Self(data.into()) }
-    pub fn as_bytes(&self) -> &[u8] { &self.0 }
-    pub fn len(&self) -> usize { self.0.len() }
-    pub fn is_empty(&self) -> bool { self.0.is_empty() }
+    pub fn new(data: impl Into<Vec<u8>>) -> Self {
+        Self(data.into())
+    }
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 impl Serialize for ByteString {
@@ -62,13 +78,23 @@ impl<'de> Deserialize<'de> for ByteString {
 pub struct Key(pub ByteString);
 
 impl Key {
-    pub fn new(data: impl Into<Vec<u8>>) -> Self { Self(ByteString(data.into())) }
+    pub fn new(data: impl Into<Vec<u8>>) -> Self {
+        Self(ByteString(data.into()))
+    }
     /// Create a key from a string slice.
     #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> Self { Self(ByteString(s.as_bytes().to_vec())) }
-    pub fn as_bytes(&self) -> &[u8] { self.0.as_bytes() }
-    pub fn len(&self) -> usize { self.0.len() }
-    pub fn is_empty(&self) -> bool { self.0.is_empty() }
+    pub fn from_str(s: &str) -> Self {
+        Self(ByteString(s.as_bytes().to_vec()))
+    }
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 impl fmt::Display for Key {
@@ -85,18 +111,31 @@ impl fmt::Display for Key {
 pub struct Value(pub ByteString);
 
 impl Value {
-    pub fn new(data: impl Into<Vec<u8>>) -> Self { Self(ByteString(data.into())) }
+    pub fn new(data: impl Into<Vec<u8>>) -> Self {
+        Self(ByteString(data.into()))
+    }
     /// Create a value from a string slice.
     #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> Self { Self(ByteString(s.as_bytes().to_vec())) }
-    pub fn as_bytes(&self) -> &[u8] { self.0.as_bytes() }
-    pub fn len(&self) -> usize { self.0.len() }
-    pub fn is_empty(&self) -> bool { self.0.is_empty() }
+    pub fn from_str(s: &str) -> Self {
+        Self(ByteString(s.as_bytes().to_vec()))
+    }
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 /// The tier level where an entry is stored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum TierLevel { Hot, Cold }
+pub enum TierLevel {
+    Hot,
+    Cold,
+}
 
 impl fmt::Display for TierLevel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -137,7 +176,9 @@ impl Entry {
         self.last_accessed = Timestamp::now();
         self.access_count += 1;
     }
-    pub fn set_tier(&mut self, tier: TierLevel) { self.tier = tier; }
+    pub fn set_tier(&mut self, tier: TierLevel) {
+        self.tier = tier;
+    }
 }
 
 /// Error types for the store.

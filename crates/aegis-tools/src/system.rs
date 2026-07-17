@@ -214,9 +214,10 @@ impl Tool for ProcessListTool {
         let limit = args["limit"].as_u64().unwrap_or(15) as usize;
         let name_filter = args["name"].as_str().map(|s| s.to_lowercase());
 
-        let out = tokio::task::spawn_blocking(move || collect_processes(&sort_by, limit, name_filter))
-            .await
-            .map_err(|e| anyhow::anyhow!("process task failed: {e}"))?;
+        let out =
+            tokio::task::spawn_blocking(move || collect_processes(&sort_by, limit, name_filter))
+                .await
+                .map_err(|e| anyhow::anyhow!("process task failed: {e}"))?;
         Ok(out)
     }
 }
@@ -260,7 +261,10 @@ fn collect_processes(sort_by: &str, limit: usize, name_filter: Option<String>) -
     }
 
     let mut out = format!("Top {} processes by {}:\n", rows.len(), sort_by);
-    out.push_str(&format!("{:>8}  {:>6}  {:>10}  {}\n", "PID", "CPU%", "MEM", "NAME"));
+    out.push_str(&format!(
+        "{:>8}  {:>6}  {:>10}  {}\n",
+        "PID", "CPU%", "MEM", "NAME"
+    ));
     for (name, pid, cpu, mem) in rows {
         out.push_str(&format!(
             "{pid:>8}  {cpu:>5.1}  {:>10}  {name}\n",

@@ -29,7 +29,10 @@ impl CircuitBreaker {
 
     /// 是否允许请求通过
     pub fn allow_request(&self) -> bool {
-        let mut state = self.state.lock().expect("circuit breaker state lock poisoned");
+        let mut state = self
+            .state
+            .lock()
+            .expect("circuit breaker state lock poisoned");
         match *state {
             BreakerState::Closed => true,
             BreakerState::Open(opened_at) => {
@@ -44,9 +47,7 @@ impl CircuitBreaker {
             BreakerState::HalfOpen => {
                 // HalfOpen 只放一个请求，再次调用 allow_request 时返回 false
                 // 防止并发时多个请求同时通过，将状态切换回 Open 暂时阻断
-                *state = BreakerState::Open(
-                    Instant::now() - self.timeout + Duration::from_secs(1),
-                );
+                *state = BreakerState::Open(Instant::now() - self.timeout + Duration::from_secs(1));
                 true
             }
         }
@@ -54,18 +55,30 @@ impl CircuitBreaker {
 
     /// 记录成功
     pub fn record_success(&self) {
-        let mut state = self.state.lock().expect("circuit breaker state lock poisoned");
+        let mut state = self
+            .state
+            .lock()
+            .expect("circuit breaker state lock poisoned");
         *state = BreakerState::Closed;
-        let mut count = self.failure_count.lock().expect("circuit breaker count lock poisoned");
+        let mut count = self
+            .failure_count
+            .lock()
+            .expect("circuit breaker count lock poisoned");
         *count = 0;
     }
 
     /// 记录失败
     pub fn record_failure(&self) {
-        let mut count = self.failure_count.lock().expect("circuit breaker count lock poisoned");
+        let mut count = self
+            .failure_count
+            .lock()
+            .expect("circuit breaker count lock poisoned");
         *count += 1;
         if *count >= self.threshold {
-            let mut state = self.state.lock().expect("circuit breaker state lock poisoned");
+            let mut state = self
+                .state
+                .lock()
+                .expect("circuit breaker state lock poisoned");
             *state = BreakerState::Open(Instant::now());
             *count = 0;
             tracing::warn!("CircuitBreaker tripped: moving to Open state");
@@ -74,7 +87,10 @@ impl CircuitBreaker {
 
     /// 当前状态（用于日志）
     pub fn state_name(&self) -> &'static str {
-        let state = self.state.lock().expect("circuit breaker state lock poisoned");
+        let state = self
+            .state
+            .lock()
+            .expect("circuit breaker state lock poisoned");
         match *state {
             BreakerState::Closed => "Closed",
             BreakerState::Open(_) => "Open",

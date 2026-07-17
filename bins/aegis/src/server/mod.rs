@@ -48,9 +48,7 @@ async fn auth_middleware(
             .and_then(|v| v.to_str().ok())
             .unwrap_or("");
 
-        let token = auth_header
-            .strip_prefix("Bearer ")
-            .unwrap_or(auth_header);
+        let token = auth_header.strip_prefix("Bearer ").unwrap_or(auth_header);
 
         if token != expected {
             return Err(error::ApiError::Unauthorized("invalid API key".into()));
@@ -75,11 +73,20 @@ fn build_app(state: Arc<AppState>) -> Router {
         .route("/chat/stream", post(handlers::system::chat_stream))
         .route("/sessions", get(handlers::sessions::list_sessions))
         .route("/sessions/{id}", get(handlers::sessions::get_session))
-        .route("/sessions/{id}/export", get(handlers::sessions::export_session))
-        .route("/sessions/{id}/delete", post(handlers::sessions::delete_session))
+        .route(
+            "/sessions/{id}/export",
+            get(handlers::sessions::export_session),
+        )
+        .route(
+            "/sessions/{id}/delete",
+            post(handlers::sessions::delete_session),
+        )
         .route("/search", get(handlers::sessions::search_sessions))
         .layer(cors)
-        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
         .with_state(state)
 }
 
@@ -195,7 +202,9 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
 
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["status"], "ok");
         assert!(json["version"].is_string());
@@ -211,7 +220,9 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
 
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert!(json["version"].is_string());
         assert!(json["model"].is_string());
@@ -229,7 +240,9 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
 
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["response"], "echo: hello world");
     }
@@ -246,7 +259,9 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["code"], "BAD_REQUEST");
     }
@@ -263,8 +278,16 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
 
-        let content_type = resp.headers().get("content-type").unwrap().to_str().unwrap();
-        assert!(content_type.contains("text/event-stream"), "expected SSE content-type, got: {content_type}");
+        let content_type = resp
+            .headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(
+            content_type.contains("text/event-stream"),
+            "expected SSE content-type, got: {content_type}"
+        );
     }
 
     #[tokio::test]
@@ -278,7 +301,9 @@ mod tests {
         // May return 200 with empty list or 500 if no DB, both are acceptable
         // for a unit test (no SQLite in test env)
         let status = resp.status();
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         if status == StatusCode::OK {
             assert!(json["sessions"].is_array());

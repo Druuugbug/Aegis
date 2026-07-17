@@ -68,7 +68,16 @@ impl Tool for ListFilesTool {
         let mut out = String::new();
         let mut count = 0usize;
         let mut truncated = false;
-        walk(&dir, depth, all, max_entries, &mut count, &mut truncated, 0, &mut out);
+        walk(
+            &dir,
+            depth,
+            all,
+            max_entries,
+            &mut count,
+            &mut truncated,
+            0,
+            &mut out,
+        );
 
         if out.is_empty() {
             return Ok(format!("(empty directory: {path_arg})"));
@@ -128,7 +137,16 @@ fn walk(
         *count += 1;
 
         if is_dir && depth > 1 {
-            walk(&path, depth - 1, all, max_entries, count, truncated, indent + 1, out);
+            walk(
+                &path,
+                depth - 1,
+                all,
+                max_entries,
+                count,
+                truncated,
+                indent + 1,
+                out,
+            );
         }
     }
 }

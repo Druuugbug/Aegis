@@ -118,7 +118,7 @@ fn is_cjk_char(c: char) -> bool {
         || (0x3040..=0x309F).contains(&cp)  // Hiragana
         || (0x30A0..=0x30FF).contains(&cp)  // Katakana
         || (0xAC00..=0xD7AF).contains(&cp)  // Hangul
-        || (0xFF00..=0xFFEF).contains(&cp)  // Fullwidth forms
+        || (0xFF00..=0xFFEF).contains(&cp) // Fullwidth forms
 }
 
 #[cfg(test)]

@@ -77,7 +77,10 @@ impl Tool for HttpRequestTool {
         let method = reqwest::Method::from_bytes(method_str.as_bytes())
             .map_err(|_| anyhow::anyhow!("invalid HTTP method: {method_str}"))?;
         let timeout = args["timeout_secs"].as_u64().unwrap_or(30);
-        let max_bytes = args["max_bytes"].as_u64().map(|v| v as usize).unwrap_or(1_000_000);
+        let max_bytes = args["max_bytes"]
+            .as_u64()
+            .map(|v| v as usize)
+            .unwrap_or(1_000_000);
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(timeout))

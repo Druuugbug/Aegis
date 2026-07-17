@@ -44,9 +44,7 @@ pub mod prompt;
 pub mod scheduler;
 pub mod storage;
 
-pub use collectors::{
-    Collector, EnvCollector, GitCollector, ProjectCollector, ShellCollector,
-};
+pub use collectors::{Collector, EnvCollector, GitCollector, ProjectCollector, ShellCollector};
 pub use engine::{LearningEngine, LearningStatus};
 pub use fact::{FactSource, FactStatus, UserFact, FACT_VERSION};
 pub use filter::{redact_sensitive, redact_string, SensitiveFilter, SENSITIVE_PATTERNS};

@@ -33,7 +33,8 @@ impl TtftTracker {
 
     /// Returns the time-to-first-token duration.
     pub fn ttft(&self) -> Option<Duration> {
-        self.first_token_at.map(|t| t.duration_since(self.request_start))
+        self.first_token_at
+            .map(|t| t.duration_since(self.request_start))
     }
 }
 
@@ -303,8 +304,12 @@ mod tests {
     #[tokio::test]
     async fn test_metrics_registry_tool_calls() {
         let registry = MetricsRegistry::new();
-        registry.record_tool_call("terminal", true, Duration::from_millis(150)).await;
-        registry.record_tool_call("terminal", false, Duration::from_millis(300)).await;
+        registry
+            .record_tool_call("terminal", true, Duration::from_millis(150))
+            .await;
+        registry
+            .record_tool_call("terminal", false, Duration::from_millis(300))
+            .await;
 
         let exported = registry.export_json().await;
         let tm = &exported["tool_metrics"]["terminal"];

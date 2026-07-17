@@ -72,7 +72,10 @@ impl ResourceSnapshot {
     }
 
     fn parse_kb(s: &str) -> u64 {
-        s.split_whitespace().next().and_then(|v| v.parse().ok()).unwrap_or(0)
+        s.split_whitespace()
+            .next()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0)
     }
 
     // ── Load ──
@@ -295,12 +298,23 @@ impl OvernightRun {
         );
 
         report.push_str("--- Task Cards ---\n");
-        let completed = self.task_cards.iter().filter(|c| c.after_state.is_some()).count();
+        let completed = self
+            .task_cards
+            .iter()
+            .filter(|c| c.after_state.is_some())
+            .count();
         let total = self.task_cards.len();
         report.push_str(&format!("  Progress: {}/{}\n", completed, total));
         for card in &self.task_cards {
-            let status = if card.after_state.is_some() { "✓" } else { "○" };
-            report.push_str(&format!("  [{}] {}: {}\n", status, card.task_id, card.description));
+            let status = if card.after_state.is_some() {
+                "✓"
+            } else {
+                "○"
+            };
+            report.push_str(&format!(
+                "  [{}] {}: {}\n",
+                status, card.task_id, card.description
+            ));
         }
 
         report.push_str(&format!(
@@ -421,17 +435,11 @@ mod tests {
             disk_available_gb: 100.0,
         };
         // Past target time
-        let run = OvernightRun::new(
-            "test",
-            Utc::now() - chrono::Duration::minutes(5),
-        );
+        let run = OvernightRun::new("test", Utc::now() - chrono::Duration::minutes(5));
         assert!(run.is_time_to_wake());
 
         // Future target time
-        let run2 = OvernightRun::new(
-            "test",
-            Utc::now() + chrono::Duration::hours(1),
-        );
+        let run2 = OvernightRun::new("test", Utc::now() + chrono::Duration::hours(1));
         assert!(!run2.is_time_to_wake());
     }
 }

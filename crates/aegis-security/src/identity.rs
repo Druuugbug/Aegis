@@ -65,9 +65,7 @@ pub enum Identity {
 }
 
 /// Five trust tiers, ordered from most to least trusted.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum TrustLevel {
     /// Full authority, equivalent to owner. Sandbox: `unrestricted`.
@@ -149,7 +147,9 @@ impl Identity {
         match self {
             Identity::LocalOwner => "local-owner".into(),
             Identity::A2aPeer { agent_id, .. } => format!("a2a:{agent_id}"),
-            Identity::Channel { channel, chat_id, .. } => {
+            Identity::Channel {
+                channel, chat_id, ..
+            } => {
                 format!("channel:{channel}/{chat_id}")
             }
             Identity::McpServer { server_name, .. } => format!("mcp:{server_name}"),
@@ -263,8 +263,7 @@ pub fn derive_sandbox_policy(identity: &Identity, tool: &str, cwd: &Path) -> San
         TrustLevel::Standard => tool_preset(tool, cwd).with_extra_deny(sensitive_home_paths()),
         TrustLevel::Restricted => {
             // Restricted + non-shell tool: read-only sandbox.
-            presets::parser_offline(&[cwd.to_path_buf()])
-                .with_extra_deny(sensitive_home_paths())
+            presets::parser_offline(&[cwd.to_path_buf()]).with_extra_deny(sensitive_home_paths())
         }
         TrustLevel::ReadOnly => presets::deny_all(),
     }

@@ -29,8 +29,7 @@ impl WriteAheadLog {
 
     /// Return the default WAL directory (`~/.aegis/wal`).
     pub fn default_path() -> PathBuf {
-        aegis_types::paths::config_dir()
-            .join("wal")
+        aegis_types::paths::config_dir().join("wal")
     }
 
     /// Create a WAL using the default path (`~/.aegis/wal`).
@@ -110,7 +109,9 @@ mod tests {
                 path: format!("/f{}", i),
                 size: i * 10,
                 session_id: None,
-            }).await.unwrap();
+            })
+            .await
+            .unwrap();
         }
         let entries = wal.read_all().await.unwrap();
         assert_eq!(entries.len(), 5);
